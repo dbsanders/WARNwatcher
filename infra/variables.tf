@@ -13,11 +13,13 @@ variable "region" {
 variable "alert_sender_email" {
   type        = string
   description = "SES verified sender email."
+  default     = "bret@warnwatcher.com"
 }
 
 variable "default_alert_recipient_email" {
   type        = string
   description = "Default recipient for MVP if watchlist email is missing."
+  default     = "bret@cybersand.com"
 }
 
 variable "schedule_expression" {
