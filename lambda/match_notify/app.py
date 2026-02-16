@@ -1,8 +1,9 @@
 import json
+import logging
 import os
 import re
 from datetime import datetime, timezone
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Tuple
 
 import boto3
 from botocore.exceptions import ClientError
@@ -17,6 +18,8 @@ DEFAULT_ALERT_RECIPIENT_EMAIL = os.environ["DEFAULT_ALERT_RECIPIENT_EMAIL"]
 
 watchlists_table = dynamodb.Table(WATCHLISTS_TABLE)
 notifications_table = dynamodb.Table(NOTIFICATIONS_TABLE)
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
 
 
 def utc_now_iso() -> str:
@@ -42,8 +45,20 @@ def load_watchlists() -> List[Dict[str, Any]]:
     return items
 
 
-def match_notice_to_watchlists(notice: Dict[str, Any], watchlists: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    matches: List[Dict[str, Any]] = []
+def notice_matches_watchlist(notice: Dict[str, Any], watchlist: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
+    states = watchlist.get("states", [])
+    if states and notice.get("state") not in states:
+        return False, "state_mismatch"
+
+    min_employees = int(watchlist.get("min_employees", 0) or 0)
+    affected = int(notice.get("employees_affected", 0) or 0)
+    if affected < min_employees:
+        return False, "below_min_employees"
+
+    patterns = watchlist.get("patterns", [])
+    if not patterns:
+        return False, "missing_patterns"
+
     haystack = " ".join(
         [
             str(notice.get("company", "")),
@@ -53,31 +68,26 @@ def match_notice_to_watchlists(notice: Dict[str, Any], watchlists: List[Dict[str
         ]
     )
 
+    had_invalid_pattern = False
+    for pattern in patterns:
+        try:
+            if re.search(pattern, haystack, flags=re.IGNORECASE):
+                return True, None
+        except re.error:
+            # Invalid regex is skipped for safety.
+            had_invalid_pattern = True
+            continue
+
+    if had_invalid_pattern:
+        return False, "invalid_or_no_pattern_match"
+    return False, "no_pattern_match"
+
+
+def match_notice_to_watchlists(notice: Dict[str, Any], watchlists: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    matches: List[Dict[str, Any]] = []
     for w in watchlists:
-        states = w.get("states", [])
-        if states and notice.get("state") not in states:
-            continue
-
-        min_employees = int(w.get("min_employees", 0) or 0)
-        affected = int(notice.get("employees_affected", 0) or 0)
-        if affected < min_employees:
-            continue
-
-        patterns = w.get("patterns", [])
-        if not patterns:
-            continue
-
-        pattern_hit = False
-        for pattern in patterns:
-            try:
-                if re.search(pattern, haystack, flags=re.IGNORECASE):
-                    pattern_hit = True
-                    break
-            except re.error:
-                # Invalid regex is skipped for safety.
-                continue
-
-        if pattern_hit:
+        is_match, _ = notice_matches_watchlist(notice, w)
+        if is_match:
             matches.append(w)
 
     return matches
@@ -115,23 +125,63 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     records = event.get("Records", [])
     watchlists = load_watchlists()
     sent_count = 0
+    no_notice_id_count = 0
 
-    for record in records:
+    logger.info(
+        "match_notify start records=%s enabled_watchlists=%s",
+        len(records),
+        len(watchlists),
+    )
+
+    for idx, record in enumerate(records):
         msg = record.get("Sns", {}).get("Message", "{}")
         notice = json.loads(msg)
         notice_id = notice.get("notice_id")
         if not notice_id:
+            no_notice_id_count += 1
+            logger.warning("skip record_index=%s reason=missing_notice_id", idx)
             continue
 
-        matching_watchlists = match_notice_to_watchlists(notice, watchlists)
+        logger.info(
+            "processing notice_id=%s company=%s state=%s employees_affected=%s",
+            notice_id,
+            notice.get("company"),
+            notice.get("state"),
+            notice.get("employees_affected"),
+        )
+
+        reason_counts: Dict[str, int] = {}
+        matching_watchlists: List[Dict[str, Any]] = []
+        for w in watchlists:
+            is_match, reason = notice_matches_watchlist(notice, w)
+            if is_match:
+                matching_watchlists.append(w)
+            else:
+                reason_key = reason or "unknown_non_match"
+                reason_counts[reason_key] = reason_counts.get(reason_key, 0) + 1
+
+        logger.info(
+            "notice_id=%s matches=%s non_match_breakdown=%s",
+            notice_id,
+            len(matching_watchlists),
+            reason_counts,
+        )
+
         for w in matching_watchlists:
             user_id = w.get("user_id")
             email = w.get("email") or DEFAULT_ALERT_RECIPIENT_EMAIL
             if not user_id or not email:
+                logger.info(
+                    "skip notice_id=%s reason=missing_user_or_email user_id=%s email_present=%s",
+                    notice_id,
+                    user_id,
+                    bool(email),
+                )
                 continue
 
             inserted = write_notification_record(notice_id, user_id)
             if not inserted:
+                logger.info("skip notice_id=%s user_id=%s reason=already_notified", notice_id, user_id)
                 continue
 
             subject = f"WARNwatcher match: {notice.get('company', 'Unknown company')}"
@@ -148,5 +198,12 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             )
             send_ses_email(email, subject, body)
             sent_count += 1
+            logger.info("sent notice_id=%s user_id=%s email=%s", notice_id, user_id, email)
 
+    logger.info(
+        "match_notify done records=%s missing_notice_id=%s sent_count=%s",
+        len(records),
+        no_notice_id_count,
+        sent_count,
+    )
     return {"status": "ok", "sent_count": sent_count, "records": len(records)}

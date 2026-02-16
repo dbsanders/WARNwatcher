@@ -7,6 +7,8 @@ Cloud-native AWS starter project to ingest WARN notices (starting with Californi
 - EventBridge Scheduler (`aws_scheduler_schedule`) triggers ingest on schedule.
 - `ingest` Lambda checks source headers (`ETag` / `Last-Modified`), stores raw files in S3, parses XLSX, normalizes notices, writes deduped notices to DynamoDB, and emits new-notice events to SNS.
 - `match_notify` Lambda consumes SNS events, evaluates watchlists, sends SES emails, and records sent notifications for dedupe.
+- `watchlist_api` Lambda is exposed via API Gateway HTTP API (`POST /subscribe`) for website signup submissions.
+- Static frontend is served from S3 through CloudFront.
 
 ## Repo Layout
 
@@ -14,6 +16,8 @@ Cloud-native AWS starter project to ingest WARN notices (starting with Californi
 - `infra/bootstrap/` one-time Terraform stack for remote state backend (S3 + DynamoDB lock table).
 - `lambda/ingest/` ingest Lambda.
 - `lambda/match_notify/` matcher/notify Lambda.
+- `lambda/watchlist_api/` API Lambda for watchlist signup.
+- `frontend/` static web app.
 - `scripts/` build and helper scripts.
 
 ## Prereqs
@@ -29,11 +33,6 @@ Cloud-native AWS starter project to ingest WARN notices (starting with Californi
 WSL / Bash:
 ```bash
 bash scripts/build_lambdas.sh
-```
-
-PowerShell:
-```powershell
-./scripts/build_lambdas.ps1
 ```
 
 ## Remote State (S3 + DynamoDB)
@@ -81,6 +80,37 @@ terraform -chdir=infra init -backend-config=backend.hcl -reconfigure
 
 ```bash
 terraform -chdir=infra apply
+```
+
+## Domain + Cloudflare Notes
+
+- Certificates are created in ACM and DNS validation records are exposed as outputs:
+  - `web_certificate_dns_validation_records`
+  - `api_certificate_dns_validation_records`
+- Add those records in Cloudflare first, wait for cert issuance, then set:
+  - `enable_custom_domains = true`
+- Use output `cloudflare_dns_targets` to create CNAME/flattened records for apex, `www`, and `api`.
+
+## Frontend Deploy
+
+After Terraform apply, upload `frontend/` to the website bucket and invalidate CloudFront:
+
+```bash
+bash scripts/deploy_frontend.sh <web_bucket_name> <cloudfront_distribution_id>
+```
+
+## Pause / Resume Signup API
+
+Temporarily block public signups (without deleting infrastructure):
+
+```bash
+bash scripts/toggle_watchlist_api.sh disable
+```
+
+Re-enable:
+
+```bash
+bash scripts/toggle_watchlist_api.sh enable
 ```
 
 ## SES Setup

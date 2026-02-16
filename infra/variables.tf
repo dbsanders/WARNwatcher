@@ -33,3 +33,27 @@ variable "warn_ca_url" {
   description = "California WARN XLSX URL."
   default     = "https://edd.ca.gov/siteassets/files/jobs_and_training/warn/warn_report.xlsx"
 }
+
+variable "root_domain" {
+  type        = string
+  description = "Apex domain for the web app."
+  default     = "warnwatcher.com"
+}
+
+variable "www_subdomain" {
+  type        = string
+  description = "www host label."
+  default     = "www"
+}
+
+variable "api_subdomain" {
+  type        = string
+  description = "API host label."
+  default     = "api"
+}
+
+variable "enable_custom_domains" {
+  type        = bool
+  description = "Enable custom domain bindings on CloudFront and API Gateway after ACM certificates are validated."
+  default     = false
+}
