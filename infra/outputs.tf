@@ -14,6 +14,10 @@ output "watchlists_table_name" {
   value = aws_dynamodb_table.watchlists.name
 }
 
+output "users_table_name" {
+  value = aws_dynamodb_table.users.name
+}
+
 output "notifications_table_name" {
   value = aws_dynamodb_table.notifications.name
 }
@@ -60,6 +64,18 @@ output "watchlist_api_default_endpoint" {
 
 output "watchlist_api_subscribe_default_url" {
   value = "${aws_apigatewayv2_api.watchlist.api_endpoint}/subscribe"
+}
+
+output "watchlist_api_signup_default_url" {
+  value = "${aws_apigatewayv2_api.watchlist.api_endpoint}/signup"
+}
+
+output "watchlist_api_login_default_url" {
+  value = "${aws_apigatewayv2_api.watchlist.api_endpoint}/login"
+}
+
+output "watchlist_api_subscriptions_default_url" {
+  value = "${aws_apigatewayv2_api.watchlist.api_endpoint}/subscriptions"
 }
 
 output "watchlist_api_custom_domain_name" {

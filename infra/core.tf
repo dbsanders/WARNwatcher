@@ -4,6 +4,11 @@ resource "random_id" "suffix" {
   byte_length = 3
 }
 
+resource "random_password" "auth_token_secret" {
+  length  = 48
+  special = false
+}
+
 locals {
   tags = {
     Project   = var.project_name

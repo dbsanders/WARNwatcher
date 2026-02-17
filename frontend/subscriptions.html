@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>WARNwatcher - Subscriptions</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="container">
+      <h1>Your Subscriptions</h1>
+      <p id="auth-summary"></p>
+
+      <div class="button-row">
+        <a class="button-link" href="./index.html">Create subscription</a>
+        <button id="refresh" type="button" class="secondary">Refresh</button>
+        <button id="logout" type="button" class="secondary">Log out</button>
+      </div>
+
+      <p id="status" role="status"></p>
+      <form id="subscriptions-form">
+        <section id="subscriptions-list"></section>
+        <button id="save-all" type="submit" disabled>Save Changes</button>
+      </form>
+    </main>
+
+    <script src="./subscriptions.js"></script>
+  </body>
+</html>

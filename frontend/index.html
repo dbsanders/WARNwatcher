@@ -10,11 +10,10 @@
     <main class="container">
       <h1>WARNwatcher</h1>
       <p>Get notified when a company appears in the WARN feed.</p>
+      <p id="auth-summary"></p>
+      <button id="logout" type="button" class="secondary">Log out</button>
 
       <form id="subscribe-form">
-        <label for="email">Email</label>
-        <input id="email" name="email" type="email" required />
-
         <label for="company">Company Name</label>
         <input id="company" name="company" type="text" required />
 
@@ -28,6 +27,8 @@
       </form>
 
       <p id="status" role="status"></p>
+      <p><a href="./subscriptions.html">Manage subscriptions</a></p>
+      <p><a href="./signup.html">Need an account? Sign up or sign in.</a></p>
     </main>
 
     <script src="./app.js"></script>

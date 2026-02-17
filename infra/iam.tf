@@ -117,11 +117,23 @@ resource "aws_iam_role" "watchlist_api_lambda" {
 
 data "aws_iam_policy_document" "watchlist_api_policy" {
   statement {
-    sid = "DynamoWatchlistsWrite"
+    sid = "DynamoWatchlistsReadWrite"
     actions = [
-      "dynamodb:PutItem"
+      "dynamodb:PutItem",
+      "dynamodb:Query",
+      "dynamodb:UpdateItem",
+      "dynamodb:DeleteItem"
     ]
     resources = [aws_dynamodb_table.watchlists.arn]
+  }
+
+  statement {
+    sid = "DynamoUsersReadWrite"
+    actions = [
+      "dynamodb:GetItem",
+      "dynamodb:PutItem"
+    ]
+    resources = [aws_dynamodb_table.users.arn]
   }
 
   statement {

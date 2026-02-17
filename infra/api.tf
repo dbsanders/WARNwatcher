@@ -4,8 +4,8 @@ resource "aws_apigatewayv2_api" "watchlist" {
 
   cors_configuration {
     allow_credentials = false
-    allow_headers     = ["content-type"]
-    allow_methods     = ["POST", "OPTIONS"]
+    allow_headers     = ["content-type", "authorization"]
+    allow_methods     = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
     allow_origins     = ["https://${var.root_domain}", "https://${local.www_domain_name}"]
     max_age           = 3600
   }
@@ -23,6 +23,36 @@ resource "aws_apigatewayv2_integration" "watchlist_lambda" {
 resource "aws_apigatewayv2_route" "watchlist_subscribe" {
   api_id    = aws_apigatewayv2_api.watchlist.id
   route_key = "POST /subscribe"
+  target    = "integrations/${aws_apigatewayv2_integration.watchlist_lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "watchlist_signup" {
+  api_id    = aws_apigatewayv2_api.watchlist.id
+  route_key = "POST /signup"
+  target    = "integrations/${aws_apigatewayv2_integration.watchlist_lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "watchlist_login" {
+  api_id    = aws_apigatewayv2_api.watchlist.id
+  route_key = "POST /login"
+  target    = "integrations/${aws_apigatewayv2_integration.watchlist_lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "watchlist_subscriptions_list" {
+  api_id    = aws_apigatewayv2_api.watchlist.id
+  route_key = "GET /subscriptions"
+  target    = "integrations/${aws_apigatewayv2_integration.watchlist_lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "watchlist_subscriptions_update" {
+  api_id    = aws_apigatewayv2_api.watchlist.id
+  route_key = "PUT /subscriptions/{watch_id}"
+  target    = "integrations/${aws_apigatewayv2_integration.watchlist_lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "watchlist_subscriptions_delete" {
+  api_id    = aws_apigatewayv2_api.watchlist.id
+  route_key = "DELETE /subscriptions/{watch_id}"
   target    = "integrations/${aws_apigatewayv2_integration.watchlist_lambda.id}"
 }
 

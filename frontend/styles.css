@@ -22,9 +22,44 @@ h1 {
   margin-top: 0;
 }
 
+h2 {
+  margin: 0 0 12px;
+  font-size: 1.1rem;
+}
+
 form {
   display: grid;
   gap: 10px;
+}
+
+.button-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.button-link {
+  display: inline-block;
+  padding: 10px 12px;
+  background: #1d4ed8;
+  color: #fff;
+  text-decoration: none;
+  border-radius: 6px;
+}
+
+.button-link:hover {
+  background: #1e40af;
+}
+
+.panel + .panel {
+  margin-top: 16px;
+}
+
+.panel {
+  padding: 14px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
 }
 
 label {
@@ -49,6 +84,76 @@ button {
 
 button:hover {
   background: #1e40af;
+}
+
+button.secondary {
+  background: #475569;
+}
+
+button.secondary:hover {
+  background: #334155;
+}
+
+button.danger {
+  background: #b91c1c;
+}
+
+button.danger:hover {
+  background: #991b1b;
+}
+
+.subscription-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 12px;
+  margin-top: 10px;
+}
+
+.checkbox-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.muted {
+  color: #64748b;
+}
+
+.subscriptions-table-wrap {
+  overflow-x: auto;
+}
+
+.subscriptions-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 8px;
+}
+
+.subscriptions-table th,
+.subscriptions-table td {
+  border: 1px solid #e5e7eb;
+  padding: 8px;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.subscriptions-table th {
+  background: #f8fafc;
+  font-weight: 700;
+}
+
+.subscriptions-table td input[type="text"],
+.subscriptions-table td input[type="number"] {
+  width: 100%;
+}
+
+.enabled-cell {
+  text-align: center;
+}
+
+button:disabled {
+  background: #94a3b8;
+  cursor: not-allowed;
 }
 
 #status {

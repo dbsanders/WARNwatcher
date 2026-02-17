@@ -61,8 +61,11 @@ resource "aws_lambda_function" "watchlist_api" {
 
   environment {
     variables = {
-      WATCHLISTS_TABLE = aws_dynamodb_table.watchlists.name
-      DEFAULT_STATE    = "CA"
+      WATCHLISTS_TABLE   = aws_dynamodb_table.watchlists.name
+      USERS_TABLE        = aws_dynamodb_table.users.name
+      AUTH_TOKEN_SECRET  = random_password.auth_token_secret.result
+      AUTH_TOKEN_TTL_SEC = "86400"
+      DEFAULT_STATE      = "CA"
     }
   }
 

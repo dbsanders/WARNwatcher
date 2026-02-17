@@ -7,7 +7,7 @@ Cloud-native AWS starter project to ingest WARN notices (starting with Californi
 - EventBridge Scheduler (`aws_scheduler_schedule`) triggers ingest on schedule.
 - `ingest` Lambda checks source headers (`ETag` / `Last-Modified`), stores raw files in S3, parses XLSX, normalizes notices, writes deduped notices to DynamoDB, and emits new-notice events to SNS.
 - `match_notify` Lambda consumes SNS events, evaluates watchlists, sends SES emails, and records sent notifications for dedupe.
-- `watchlist_api` Lambda is exposed via API Gateway HTTP API (`POST /subscribe`) for website signup submissions.
+- `watchlist_api` Lambda is exposed via API Gateway HTTP API (`POST /signup`, `POST /login`, `POST /subscribe`, `GET /subscriptions`, `PUT /subscriptions/{watch_id}`, `DELETE /subscriptions/{watch_id}`) for account auth and watchlist management.
 - Static frontend is served from S3 through CloudFront.
 
 ## Repo Layout
@@ -119,7 +119,57 @@ bash scripts/toggle_watchlist_api.sh enable
 2. If SES is in sandbox, verify recipient identities.
 3. Request SES production access when ready.
 
-## Add Watchlists (AWS CLI)
+## Auth + Watchlist API (AWS CLI)
+
+Create an account:
+
+```bash
+curl -X POST "https://api.warnwatcher.com/signup" \
+  -H "Content-Type: application/json" \
+  -d '{"email":"you@example.com","password":"change-me-123"}'
+```
+
+Sign in and capture `access_token` from the response:
+
+```bash
+curl -X POST "https://api.warnwatcher.com/login" \
+  -H "Content-Type: application/json" \
+  -d '{"email":"you@example.com","password":"change-me-123"}'
+```
+
+Create a watchlist using the bearer token:
+
+```bash
+curl -X POST "https://api.warnwatcher.com/subscribe" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <access_token>" \
+  -d '{"company":"Acme","state":"CA","min_employees":25}'
+```
+
+List your subscriptions:
+
+```bash
+curl -X GET "https://api.warnwatcher.com/subscriptions" \
+  -H "Authorization: Bearer <access_token>"
+```
+
+Update a subscription:
+
+```bash
+curl -X PUT "https://api.warnwatcher.com/subscriptions/<watch_id>" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <access_token>" \
+  -d '{"company":"Acme Logistics","state":"CA","min_employees":50,"is_enabled":true}'
+```
+
+Delete a subscription:
+
+```bash
+curl -X DELETE "https://api.warnwatcher.com/subscriptions/<watch_id>" \
+  -H "Authorization: Bearer <access_token>"
+```
+
+## Add Watchlists (Direct DynamoDB)
 
 ```bash
 aws dynamodb put-item \
