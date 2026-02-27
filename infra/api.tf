@@ -38,6 +38,18 @@ resource "aws_apigatewayv2_route" "watchlist_login" {
   target    = "integrations/${aws_apigatewayv2_integration.watchlist_lambda.id}"
 }
 
+resource "aws_apigatewayv2_route" "watchlist_forgot_password" {
+  api_id    = aws_apigatewayv2_api.watchlist.id
+  route_key = "POST /forgot-password"
+  target    = "integrations/${aws_apigatewayv2_integration.watchlist_lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "watchlist_reset_password" {
+  api_id    = aws_apigatewayv2_api.watchlist.id
+  route_key = "POST /reset-password"
+  target    = "integrations/${aws_apigatewayv2_integration.watchlist_lambda.id}"
+}
+
 resource "aws_apigatewayv2_route" "watchlist_subscriptions_list" {
   api_id    = aws_apigatewayv2_api.watchlist.id
   route_key = "GET /subscriptions"

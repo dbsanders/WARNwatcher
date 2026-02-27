@@ -61,11 +61,17 @@ resource "aws_lambda_function" "watchlist_api" {
 
   environment {
     variables = {
-      WATCHLISTS_TABLE   = aws_dynamodb_table.watchlists.name
-      USERS_TABLE        = aws_dynamodb_table.users.name
-      AUTH_TOKEN_SECRET  = random_password.auth_token_secret.result
-      AUTH_TOKEN_TTL_SEC = "86400"
-      DEFAULT_STATE      = "CA"
+      WATCHLISTS_TABLE          = aws_dynamodb_table.watchlists.name
+      NOTICES_TABLE             = aws_dynamodb_table.notices.name
+      NOTIFICATIONS_TABLE       = aws_dynamodb_table.notifications.name
+      USERS_TABLE               = aws_dynamodb_table.users.name
+      AUTH_TOKEN_SECRET         = random_password.auth_token_secret.result
+      AUTH_TOKEN_TTL_SEC        = "86400"
+      RESET_TOKEN_TTL_SEC       = "3600"
+      ALERT_SENDER_EMAIL        = var.alert_sender_email
+      PASSWORD_RESET_FROM_EMAIL = var.alert_sender_email
+      WEB_APP_BASE_URL          = var.enable_custom_domains ? "https://${var.root_domain}" : "https://${aws_cloudfront_distribution.web.domain_name}"
+      DEFAULT_STATE             = "CA"
     }
   }
 

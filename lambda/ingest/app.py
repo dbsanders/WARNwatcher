@@ -1,5 +1,6 @@
 import datetime as dt
 import hashlib
+import html
 import io
 import json
 import os
@@ -84,12 +85,28 @@ def parse_date(value: Any) -> Optional[str]:
         return value.date().isoformat()
     if isinstance(value, dt.date):
         return value.isoformat()
+    if isinstance(value, (int, float)):
+        # Excel serial date (1900 date system). Keep values in a sensible range only.
+        if 1 <= int(value) <= 80000:
+            try:
+                excel_epoch = dt.datetime(1899, 12, 30)
+                return (excel_epoch + dt.timedelta(days=float(value))).date().isoformat()
+            except (OverflowError, ValueError):
+                pass
     text = str(value).strip()
     for fmt in ("%m/%d/%Y", "%Y-%m-%d", "%m/%d/%y", "%B %d, %Y"):
         try:
             return dt.datetime.strptime(text, fmt).date().isoformat()
         except ValueError:
             continue
+    if text.isdigit():
+        serial = int(text)
+        if 1 <= serial <= 80000:
+            try:
+                excel_epoch = dt.datetime(1899, 12, 30)
+                return (excel_epoch + dt.timedelta(days=serial)).date().isoformat()
+            except (OverflowError, ValueError):
+                pass
     return text
 
 
@@ -109,14 +126,31 @@ def find_col(row: Dict[str, Any], aliases: List[str]) -> Any:
     return None
 
 
+def choose_data_sheet(workbook: Any) -> Any:
+    # CA WARN workbook commonly has an index page first and detailed data in another sheet.
+    for ws in workbook.worksheets:
+        sheet_name = normalize_header(ws.title)
+        if "detailed warn report" in sheet_name or "detailed" in sheet_name:
+            return ws
+
+    # Fallback: find first sheet that appears to contain the company header.
+    for ws in workbook.worksheets:
+        for row in ws.iter_rows(min_row=1, max_row=20, values_only=True):
+            normalized = [normalize_header(v) for v in row]
+            if any("company" in h or "employer" in h for h in normalized):
+                return ws
+
+    return workbook.active
+
+
 def build_notice_id(notice: Dict[str, Any]) -> str:
     key_parts = [
-        notice.get("state", ""),
-        notice.get("company", ""),
-        notice.get("notice_date", ""),
-        notice.get("city", ""),
-        str(notice.get("employees_affected", "")),
-        notice.get("effective_date", ""),
+        str(notice.get("state") or ""),
+        str(notice.get("company") or ""),
+        str(notice.get("notice_date") or ""),
+        str(notice.get("city") or ""),
+        str(notice.get("employees_affected") or ""),
+        str(notice.get("effective_date") or ""),
     ]
     raw = "|".join(key_parts).lower().encode("utf-8")
     return hashlib.sha256(raw).hexdigest()
@@ -124,7 +158,7 @@ def build_notice_id(notice: Dict[str, Any]) -> str:
 
 def parse_ca_xlsx(content: bytes) -> List[Dict[str, Any]]:
     wb = load_workbook(io.BytesIO(content), data_only=True)
-    ws = wb.active
+    ws = choose_data_sheet(wb)
 
     rows = list(ws.iter_rows(values_only=True))
     header_idx = None
@@ -157,17 +191,17 @@ def parse_ca_xlsx(content: bytes) -> List[Dict[str, Any]]:
 
         notice = {
             "state": "CA",
-            "company": str(company).strip(),
+            "company": html.unescape(str(company).strip()),
             "city": str(find_col(raw_row, ["city"]) or "").strip() or None,
-            "county": str(find_col(raw_row, ["county"]) or "").strip() or None,
+            "county": str(find_col(raw_row, ["county", "county/parish"]) or "").strip() or None,
             "employees_affected": parse_int(
                 find_col(
                     raw_row,
-                    ["number of employees", "employees", "employees affected", "affected workers"],
+                    ["number of employees", "employees", "employees affected", "affected workers", "no. of employees"],
                 )
             ),
-            "notice_date": parse_date(find_col(raw_row, ["notice date", "received date", "date received"])),
-            "effective_date": parse_date(find_col(raw_row, ["layoff date", "effective date", "closure date"])),
+            "notice_date": parse_date(find_col(raw_row, ["notice date", "received date", "date received", "notice date "])),
+            "effective_date": parse_date(find_col(raw_row, ["layoff date", "effective date", "closure date", "effective  date"])),
             "raw_row_json": json.dumps(raw_row, default=str),
         }
         notice["notice_id"] = build_notice_id(notice)

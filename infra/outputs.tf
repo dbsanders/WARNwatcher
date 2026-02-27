@@ -74,6 +74,14 @@ output "watchlist_api_login_default_url" {
   value = "${aws_apigatewayv2_api.watchlist.api_endpoint}/login"
 }
 
+output "watchlist_api_forgot_password_default_url" {
+  value = "${aws_apigatewayv2_api.watchlist.api_endpoint}/forgot-password"
+}
+
+output "watchlist_api_reset_password_default_url" {
+  value = "${aws_apigatewayv2_api.watchlist.api_endpoint}/reset-password"
+}
+
 output "watchlist_api_subscriptions_default_url" {
   value = "${aws_apigatewayv2_api.watchlist.api_endpoint}/subscriptions"
 }

@@ -7,7 +7,7 @@ Cloud-native AWS starter project to ingest WARN notices (starting with Californi
 - EventBridge Scheduler (`aws_scheduler_schedule`) triggers ingest on schedule.
 - `ingest` Lambda checks source headers (`ETag` / `Last-Modified`), stores raw files in S3, parses XLSX, normalizes notices, writes deduped notices to DynamoDB, and emits new-notice events to SNS.
 - `match_notify` Lambda consumes SNS events, evaluates watchlists, sends SES emails, and records sent notifications for dedupe.
-- `watchlist_api` Lambda is exposed via API Gateway HTTP API (`POST /signup`, `POST /login`, `POST /subscribe`, `GET /subscriptions`, `PUT /subscriptions/{watch_id}`, `DELETE /subscriptions/{watch_id}`) for account auth and watchlist management.
+- `watchlist_api` Lambda is exposed via API Gateway HTTP API (`POST /signup`, `POST /login`, `POST /forgot-password`, `POST /reset-password`, `POST /subscribe`, `GET /subscriptions`, `PUT /subscriptions/{watch_id}`, `DELETE /subscriptions/{watch_id}`) for account auth and watchlist management.
 - Static frontend is served from S3 through CloudFront.
 
 ## Repo Layout
@@ -137,6 +137,22 @@ curl -X POST "https://api.warnwatcher.com/login" \
   -d '{"email":"you@example.com","password":"change-me-123"}'
 ```
 
+Request a password reset email:
+
+```bash
+curl -X POST "https://api.warnwatcher.com/forgot-password" \
+  -H "Content-Type: application/json" \
+  -d '{"email":"you@example.com"}'
+```
+
+Reset password with token from reset link:
+
+```bash
+curl -X POST "https://api.warnwatcher.com/reset-password" \
+  -H "Content-Type: application/json" \
+  -d '{"token":"<reset_token>","password":"new-password-123"}'
+```
+
 Create a watchlist using the bearer token:
 
 ```bash
@@ -145,6 +161,8 @@ curl -X POST "https://api.warnwatcher.com/subscribe" \
   -H "Authorization: Bearer <access_token>" \
   -d '{"company":"Acme","state":"CA","min_employees":25}'
 ```
+
+`/subscribe` also checks existing notices immediately and returns `existing_match_count` plus sample `existing_matches`. If matches are found, WARNwatcher sends an immediate email alert (deduped per `notice_id` + `user_id`).
 
 List your subscriptions:
 

@@ -54,7 +54,20 @@ form.addEventListener("submit", async (event) => {
       statusEl.textContent = `Error: ${body.message || "request failed"}`;
       return;
     }
-    statusEl.textContent = "Subscription created.";
+    const existingMatchCount = Number(body.existing_match_count || 0);
+    const immediateEmailSent = Boolean(body.immediate_email_sent);
+    const immediateEmailError = String(body.immediate_email_error || "");
+    if (existingMatchCount > 0) {
+      if (immediateEmailSent) {
+        statusEl.textContent = `Subscription created. Found ${existingMatchCount} existing matching notice(s), and sent an email alert.`;
+      } else if (immediateEmailError) {
+        statusEl.textContent = `Subscription created. Found ${existingMatchCount} existing matching notice(s), but email failed (${immediateEmailError}).`;
+      } else {
+        statusEl.textContent = `Subscription created. Found ${existingMatchCount} existing matching notice(s).`;
+      }
+    } else {
+      statusEl.textContent = "Subscription created. No existing matches found.";
+    }
     form.reset();
   } catch (err) {
     statusEl.textContent = "Network error. Try again.";

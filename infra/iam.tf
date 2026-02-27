@@ -131,9 +131,32 @@ data "aws_iam_policy_document" "watchlist_api_policy" {
     sid = "DynamoUsersReadWrite"
     actions = [
       "dynamodb:GetItem",
-      "dynamodb:PutItem"
+      "dynamodb:PutItem",
+      "dynamodb:UpdateItem"
     ]
     resources = [aws_dynamodb_table.users.arn]
+  }
+
+  statement {
+    sid = "DynamoNoticesRead"
+    actions = [
+      "dynamodb:Scan"
+    ]
+    resources = [aws_dynamodb_table.notices.arn]
+  }
+
+  statement {
+    sid = "DynamoNotificationsWrite"
+    actions = [
+      "dynamodb:PutItem"
+    ]
+    resources = [aws_dynamodb_table.notifications.arn]
+  }
+
+  statement {
+    sid       = "SesSend"
+    actions   = ["ses:SendEmail"]
+    resources = ["*"]
   }
 
   statement {

@@ -40,5 +40,8 @@ terraform.rc
 build/
 dist/
 
+# Python cache
+__pycache__/
+
 # Local Terraform backend config
 infra/backend.hcl

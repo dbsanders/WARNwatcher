@@ -7,6 +7,7 @@ import hashlib
 import hmac
 import secrets
 import time
+from urllib.parse import quote
 from datetime import datetime, timezone
 from typing import Any, Dict, Tuple
 
@@ -15,14 +16,23 @@ from botocore.exceptions import ClientError
 from boto3.dynamodb.conditions import Key
 
 dynamodb = boto3.resource("dynamodb")
+ses = boto3.client("ses")
 
 WATCHLISTS_TABLE = os.environ["WATCHLISTS_TABLE"]
+NOTICES_TABLE = os.environ["NOTICES_TABLE"]
+NOTIFICATIONS_TABLE = os.environ["NOTIFICATIONS_TABLE"]
 USERS_TABLE = os.environ["USERS_TABLE"]
 AUTH_TOKEN_SECRET = os.environ["AUTH_TOKEN_SECRET"]
 AUTH_TOKEN_TTL_SEC = int(os.environ.get("AUTH_TOKEN_TTL_SEC", "86400"))
+RESET_TOKEN_TTL_SEC = int(os.environ.get("RESET_TOKEN_TTL_SEC", "3600"))
+ALERT_SENDER_EMAIL = os.environ["ALERT_SENDER_EMAIL"]
+PASSWORD_RESET_FROM_EMAIL = os.environ["PASSWORD_RESET_FROM_EMAIL"]
+WEB_APP_BASE_URL = os.environ["WEB_APP_BASE_URL"].rstrip("/")
 DEFAULT_STATE = os.environ.get("DEFAULT_STATE", "CA")
 
 watchlists_table = dynamodb.Table(WATCHLISTS_TABLE)
+notices_table = dynamodb.Table(NOTICES_TABLE)
+notifications_table = dynamodb.Table(NOTIFICATIONS_TABLE)
 users_table = dynamodb.Table(USERS_TABLE)
 
 
@@ -98,6 +108,7 @@ def issue_token(user_id: str, email: str) -> str:
     payload = {
         "sub": user_id,
         "email": email,
+        "purpose": "auth",
         "exp": int(time.time()) + AUTH_TOKEN_TTL_SEC,
     }
     payload_encoded = b64url_encode(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
@@ -132,8 +143,53 @@ def validate_token(token: str) -> Tuple[Dict[str, Any], str]:
     if int(payload.get("exp", 0)) <= int(time.time()):
         return {}, "token expired"
 
-    if not payload.get("sub") or not payload.get("email"):
+    if not payload.get("sub") or not payload.get("email") or payload.get("purpose") != "auth":
         return {}, "invalid token"
+
+    return payload, ""
+
+
+def issue_password_reset_token(user_id: str, email: str) -> str:
+    payload = {
+        "sub": user_id,
+        "email": email,
+        "purpose": "password_reset",
+        "exp": int(time.time()) + RESET_TOKEN_TTL_SEC,
+    }
+    payload_encoded = b64url_encode(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
+    signature = hmac.new(
+        AUTH_TOKEN_SECRET.encode("utf-8"),
+        payload_encoded.encode("utf-8"),
+        hashlib.sha256,
+    ).digest()
+    return f"{payload_encoded}.{b64url_encode(signature)}"
+
+
+def validate_password_reset_token(token: str) -> Tuple[Dict[str, Any], str]:
+    if not token or "." not in token:
+        return {}, "invalid reset token"
+
+    payload_encoded, signature_encoded = token.split(".", 1)
+    expected_signature = hmac.new(
+        AUTH_TOKEN_SECRET.encode("utf-8"),
+        payload_encoded.encode("utf-8"),
+        hashlib.sha256,
+    ).digest()
+
+    try:
+        actual_signature = b64url_decode(signature_encoded)
+        payload = json.loads(b64url_decode(payload_encoded).decode("utf-8"))
+    except (ValueError, json.JSONDecodeError):
+        return {}, "invalid reset token"
+
+    if not hmac.compare_digest(actual_signature, expected_signature):
+        return {}, "invalid reset token"
+
+    if int(payload.get("exp", 0)) <= int(time.time()):
+        return {}, "reset token expired"
+
+    if not payload.get("sub") or not payload.get("email") or payload.get("purpose") != "password_reset":
+        return {}, "invalid reset token"
 
     return payload, ""
 
@@ -186,6 +242,130 @@ def parse_bool(value: Any) -> Tuple[bool, str]:
         if lowered in ("false", "0", "no"):
             return False, ""
     return False, "is_enabled must be a boolean"
+
+
+def notice_matches_subscription(notice: Dict[str, Any], state: str, min_employees: int, company_pattern: str) -> bool:
+    if state and str(notice.get("state") or "").upper() != state.upper():
+        return False
+
+    affected = int(notice.get("employees_affected", 0) or 0)
+    if affected < min_employees:
+        return False
+
+    haystack = " ".join(
+        [
+            str(notice.get("company", "")),
+            str(notice.get("city", "")),
+            str(notice.get("county", "")),
+            str(notice.get("state", "")),
+        ]
+    )
+    try:
+        return bool(re.search(company_pattern, haystack, flags=re.IGNORECASE))
+    except re.error:
+        return False
+
+
+def find_existing_matches(state: str, min_employees: int, company_pattern: str, limit: int = 10) -> Dict[str, Any]:
+    start_key = None
+    scanned = 0
+    matches: list[Dict[str, Any]] = []
+
+    while True:
+        kwargs: Dict[str, Any] = {}
+        if start_key:
+            kwargs["ExclusiveStartKey"] = start_key
+        resp = notices_table.scan(**kwargs)
+        items = resp.get("Items", [])
+        scanned += len(items)
+
+        for item in items:
+            if notice_matches_subscription(item, state, min_employees, company_pattern):
+                matches.append(
+                    {
+                        "notice_id": item.get("notice_id"),
+                        "company": item.get("company"),
+                        "state": item.get("state"),
+                        "city": item.get("city"),
+                        "employees_affected": int(item.get("employees_affected", 0) or 0),
+                        "notice_date": item.get("notice_date"),
+                    }
+                )
+                if len(matches) >= limit:
+                    return {"match_count": len(matches), "matches": matches, "scanned": scanned}
+
+        start_key = resp.get("LastEvaluatedKey")
+        if not start_key:
+            break
+
+    return {"match_count": len(matches), "matches": matches, "scanned": scanned}
+
+
+def send_password_reset_email(email: str, reset_token: str) -> None:
+    reset_url = f"{WEB_APP_BASE_URL}/reset-password.html?token={quote(reset_token, safe='')}"
+    subject = "Reset your WARNwatcher password"
+    body = (
+        "We received a request to reset your password.\n\n"
+        f"Reset link: {reset_url}\n\n"
+        f"This link expires in {RESET_TOKEN_TTL_SEC // 60} minutes.\n"
+        "If you did not request this change, you can ignore this email."
+    )
+    ses.send_email(
+        Source=PASSWORD_RESET_FROM_EMAIL,
+        Destination={"ToAddresses": [email]},
+        Message={
+            "Subject": {"Data": subject},
+            "Body": {
+                "Text": {"Data": body}
+            },
+        },
+    )
+
+
+def write_notification_record(notice_id: str, user_id: str) -> bool:
+    try:
+        notifications_table.put_item(
+            Item={
+                "notice_id": notice_id,
+                "user_id": user_id,
+                "sent_at": utc_now_iso(),
+            },
+            ConditionExpression="attribute_not_exists(notice_id) AND attribute_not_exists(user_id)",
+        )
+        return True
+    except ClientError as exc:
+        if exc.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
+            return False
+        raise
+
+
+def send_immediate_match_email(email: str, company: str, matches: list[Dict[str, Any]]) -> None:
+    subject = f"WARNwatcher immediate match: {company}"
+    lines = [
+        "Your new subscription matched existing WARN notice(s):",
+        "",
+    ]
+    for idx, match in enumerate(matches, start=1):
+        lines.extend(
+            [
+                f"{idx}. {match.get('company', 'Unknown company')}",
+                f"   Notice ID: {match.get('notice_id', 'n/a')}",
+                f"   State: {match.get('state', 'n/a')}",
+                f"   City: {match.get('city', 'n/a')}",
+                f"   Employees affected: {match.get('employees_affected', 'n/a')}",
+                f"   Notice date: {match.get('notice_date', 'n/a')}",
+                "",
+            ]
+        )
+    body = "\n".join(lines).strip()
+    ses.send_email(
+        Source=ALERT_SENDER_EMAIL,
+        Destination={"ToAddresses": [email]},
+        Message={
+            "Subject": {"Data": subject},
+            "Body": {"Text": {"Data": body}},
+        },
+    )
 
 
 def handle_signup(event: Dict[str, Any]) -> Dict[str, Any]:
@@ -255,6 +435,68 @@ def handle_login(event: Dict[str, Any]) -> Dict[str, Any]:
     )
 
 
+def handle_forgot_password(event: Dict[str, Any]) -> Dict[str, Any]:
+    payload, error = parse_payload(event)
+    if error:
+        return response(400, {"message": error})
+
+    email = str(payload.get("email") or "").strip().lower()
+    if not validate_email(email):
+        return response(400, {"message": "a valid email is required"})
+
+    user_id = f"email#{email}"
+    result = users_table.get_item(Key={"user_id": user_id})
+    user = result.get("Item")
+    if not user:
+        # Avoid account enumeration.
+        return response(200, {"message": "if that account exists, a reset link has been sent"})
+
+    reset_token = issue_password_reset_token(user_id, email)
+    try:
+        send_password_reset_email(email, reset_token)
+    except ClientError:
+        return response(500, {"message": "failed to send reset email"})
+
+    return response(200, {"message": "if that account exists, a reset link has been sent"})
+
+
+def handle_reset_password(event: Dict[str, Any]) -> Dict[str, Any]:
+    payload, error = parse_payload(event)
+    if error:
+        return response(400, {"message": error})
+
+    reset_token = str(payload.get("token") or "").strip()
+    new_password = str(payload.get("password") or "")
+    if len(new_password) < 8:
+        return response(400, {"message": "password must be at least 8 characters"})
+
+    token_payload, token_error = validate_password_reset_token(reset_token)
+    if token_error:
+        return response(400, {"message": token_error})
+
+    user_id = str(token_payload["sub"])
+    try:
+        users_table.update_item(
+            Key={"user_id": user_id},
+            UpdateExpression="SET password_hash = :password_hash, updated_at = :updated_at",
+            ExpressionAttributeValues={
+                ":password_hash": hash_password(new_password),
+                ":updated_at": utc_now_iso(),
+            },
+            ConditionExpression="attribute_exists(user_id)",
+        )
+    except ClientError as exc:
+        code = exc.response.get("Error", {}).get("Code")
+        print(f"reset_password_update_failed code={code} error={exc}")
+        if code == "ConditionalCheckFailedException":
+            return response(400, {"message": "invalid reset token"})
+        if code in ("AccessDeniedException", "UnauthorizedOperation"):
+            return response(500, {"message": "server missing permission to update user password"})
+        return response(500, {"message": "failed to reset password"})
+
+    return response(200, {"message": "password reset successful"})
+
+
 def handle_subscribe(event: Dict[str, Any]) -> Dict[str, Any]:
     token_payload, token_error = authenticate(event)
     if token_error:
@@ -266,6 +508,7 @@ def handle_subscribe(event: Dict[str, Any]) -> Dict[str, Any]:
 
     company = str(payload.get("company") or "").strip()
     min_employees = payload.get("min_employees", 0)
+    state = str(payload.get("state") or DEFAULT_STATE).upper()
 
     if not company:
         return response(400, {"message": "company is required"})
@@ -286,12 +529,28 @@ def handle_subscribe(event: Dict[str, Any]) -> Dict[str, Any]:
             "email": email,
             "is_enabled": True,
             "company": company,
-            "states": [str(payload.get("state") or DEFAULT_STATE).upper()],
+            "states": [state],
             "patterns": [re.escape(company)],
             "min_employees": min_employees,
             "created_at": utc_now_iso(),
         }
     )
+
+    existing_match_result = find_existing_matches(state, min_employees, re.escape(company))
+    immediate_email_sent = False
+    immediate_notified_count = 0
+    immediate_email_error = ""
+    if existing_match_result["match_count"] > 0:
+        for match in existing_match_result["matches"]:
+            notice_id = str(match.get("notice_id") or "")
+            if notice_id and write_notification_record(notice_id, user_id):
+                immediate_notified_count += 1
+        try:
+            send_immediate_match_email(email, company, existing_match_result["matches"])
+            immediate_email_sent = True
+        except ClientError as exc:
+            immediate_email_error = exc.response.get("Error", {}).get("Code", "send_failed")
+            print(f"immediate_match_email_failed code={immediate_email_error} error={exc}")
 
     return response(
         201,
@@ -299,6 +558,11 @@ def handle_subscribe(event: Dict[str, Any]) -> Dict[str, Any]:
             "message": "subscription created",
             "user_id": user_id,
             "watch_id": watch_id,
+            "existing_match_count": existing_match_result["match_count"],
+            "existing_matches": existing_match_result["matches"],
+            "immediate_notified_count": immediate_notified_count,
+            "immediate_email_sent": immediate_email_sent,
+            "immediate_email_error": immediate_email_error,
         },
     )
 
@@ -417,6 +681,10 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             return handle_signup(event)
         if path == "/login":
             return handle_login(event)
+        if path == "/forgot-password":
+            return handle_forgot_password(event)
+        if path == "/reset-password":
+            return handle_reset_password(event)
         if path == "/subscribe":
             return handle_subscribe(event)
 
