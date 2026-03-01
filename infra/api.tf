@@ -56,6 +56,12 @@ resource "aws_apigatewayv2_route" "watchlist_subscriptions_list" {
   target    = "integrations/${aws_apigatewayv2_integration.watchlist_lambda.id}"
 }
 
+resource "aws_apigatewayv2_route" "watchlist_notices_list" {
+  api_id    = aws_apigatewayv2_api.watchlist.id
+  route_key = "GET /notices"
+  target    = "integrations/${aws_apigatewayv2_integration.watchlist_lambda.id}"
+}
+
 resource "aws_apigatewayv2_route" "watchlist_subscriptions_update" {
   api_id    = aws_apigatewayv2_api.watchlist.id
   route_key = "PUT /subscriptions/{watch_id}"

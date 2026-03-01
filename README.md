@@ -7,7 +7,7 @@ Cloud-native AWS starter project to ingest WARN notices (starting with Californi
 - EventBridge Scheduler (`aws_scheduler_schedule`) triggers ingest on schedule.
 - `ingest` Lambda checks source headers (`ETag` / `Last-Modified`), stores raw files in S3, parses XLSX, normalizes notices, writes deduped notices to DynamoDB, and emits new-notice events to SNS.
 - `match_notify` Lambda consumes SNS events, evaluates watchlists, sends SES emails, and records sent notifications for dedupe.
-- `watchlist_api` Lambda is exposed via API Gateway HTTP API (`POST /signup`, `POST /login`, `POST /forgot-password`, `POST /reset-password`, `POST /subscribe`, `GET /subscriptions`, `PUT /subscriptions/{watch_id}`, `DELETE /subscriptions/{watch_id}`) for account auth and watchlist management.
+- `watchlist_api` Lambda is exposed via API Gateway HTTP API (`POST /signup`, `POST /login`, `POST /forgot-password`, `POST /reset-password`, `POST /subscribe`, `GET /subscriptions`, `GET /notices`, `PUT /subscriptions/{watch_id}`, `DELETE /subscriptions/{watch_id}`) for account auth and watchlist management.
 - Static frontend is served from S3 through CloudFront.
 
 ## Repo Layout
@@ -169,6 +169,13 @@ List your subscriptions:
 ```bash
 curl -X GET "https://api.warnwatcher.com/subscriptions" \
   -H "Authorization: Bearer <access_token>"
+
+List current WARN notices:
+
+```bash
+curl -X GET "https://api.warnwatcher.com/notices" \
+  -H "Authorization: Bearer <access_token>"
+```
 ```
 
 Update a subscription:

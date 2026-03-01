@@ -18,6 +18,10 @@ body {
   border-radius: 8px;
 }
 
+.notices-container {
+  max-width: min(96vw, 1800px);
+}
+
 h1 {
   margin-top: 0;
 }
@@ -127,6 +131,7 @@ button.danger:hover {
   width: 100%;
   border-collapse: collapse;
   margin-top: 8px;
+  font-size: 0.95rem;
 }
 
 .subscriptions-table th,
@@ -149,6 +154,12 @@ button.danger:hover {
 
 .enabled-cell {
   text-align: center;
+}
+
+.notices-table th,
+.notices-table td {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 button:disabled {

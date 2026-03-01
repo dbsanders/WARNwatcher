@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>WARNwatcher - Current Notices</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="container notices-container">
+      <h1>Current WARN Notices</h1>
+      <p id="auth-summary"></p>
+
+      <div class="button-row">
+        <a class="button-link" href="./index.html">Create subscription</a>
+        <a class="button-link" href="./subscriptions.html">Manage subscriptions</a>
+        <button id="refresh" type="button" class="secondary">Refresh</button>
+        <button id="logout" type="button" class="secondary">Log out</button>
+      </div>
+
+      <p id="status" role="status"></p>
+      <section id="notices-list"></section>
+    </main>
+
+    <script src="./notices.js"></script>
+  </body>
+</html>

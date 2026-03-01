@@ -31,7 +31,7 @@ variable "schedule_expression" {
 variable "warn_ca_url" {
   type        = string
   description = "California WARN XLSX URL."
-  default     = "https://edd.ca.gov/siteassets/files/jobs_and_training/warn/warn_report.xlsx"
+  default     = "https://edd.ca.gov/siteassets/files/jobs_and_training/warn/warn_report1.xlsx"
 }
 
 variable "root_domain" {

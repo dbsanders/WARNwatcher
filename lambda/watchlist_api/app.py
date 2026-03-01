@@ -580,6 +580,59 @@ def handle_list_subscriptions(event: Dict[str, Any]) -> Dict[str, Any]:
     return response(200, {"subscriptions": subscriptions})
 
 
+def format_notice(item: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "notice_id": str(item.get("notice_id") or ""),
+        "company": str(item.get("company") or ""),
+        "state": str(item.get("state") or ""),
+        "city": str(item.get("city") or ""),
+        "county": str(item.get("county") or ""),
+        "employees_affected": int(item.get("employees_affected", 0) or 0),
+        "notice_date": str(item.get("notice_date") or ""),
+        "effective_date": str(item.get("effective_date") or ""),
+        "received_at": str(item.get("received_at") or ""),
+        "source_id": str(item.get("source_id") or ""),
+        "s3_object_key": str(item.get("s3_object_key") or ""),
+    }
+
+
+def handle_list_notices(event: Dict[str, Any]) -> Dict[str, Any]:
+    token_payload, token_error = authenticate(event)
+    if token_error:
+        return response(401, {"message": "authentication required"})
+
+    del token_payload  # authenticated access only
+
+    start_key = None
+    all_items: list[Dict[str, Any]] = []
+    max_items = 2000
+
+    while True:
+        kwargs: Dict[str, Any] = {}
+        if start_key:
+            kwargs["ExclusiveStartKey"] = start_key
+        result = notices_table.scan(**kwargs)
+        all_items.extend(result.get("Items") or [])
+        if len(all_items) >= max_items:
+            all_items = all_items[:max_items]
+            break
+        start_key = result.get("LastEvaluatedKey")
+        if not start_key:
+            break
+
+    notices = [format_notice(item) for item in all_items]
+    notices.sort(
+        key=lambda n: (
+            str(n.get("notice_date") or ""),
+            str(n.get("company") or "").lower(),
+            str(n.get("notice_id") or ""),
+        ),
+        reverse=True,
+    )
+
+    return response(200, {"notices": notices, "count": len(notices), "truncated": len(all_items) >= max_items})
+
+
 def handle_update_subscription(event: Dict[str, Any], watch_id: str) -> Dict[str, Any]:
     token_payload, token_error = authenticate(event)
     if token_error:
@@ -688,8 +741,11 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         if path == "/subscribe":
             return handle_subscribe(event)
 
-    if method == "GET" and path == "/subscriptions":
-        return handle_list_subscriptions(event)
+    if method == "GET":
+        if path == "/subscriptions":
+            return handle_list_subscriptions(event)
+        if path == "/notices":
+            return handle_list_notices(event)
 
     path_parameters = event.get("pathParameters") or {}
     watch_id = str(path_parameters.get("watch_id") or "")
