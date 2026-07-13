@@ -29,9 +29,11 @@ build_lambda() {
 
 build_lambda "ingest"
 build_lambda "match_notify"
+build_lambda "monthly_digest"
 build_lambda "watchlist_api"
 
 echo "Built:"
 echo " - $DIST_DIR/ingest.zip"
 echo " - $DIST_DIR/match_notify.zip"
+echo " - $DIST_DIR/monthly_digest.zip"
 echo " - $DIST_DIR/watchlist_api.zip"

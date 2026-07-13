@@ -28,6 +28,12 @@ variable "schedule_expression" {
   default     = "cron(15 9 ? * TUE,THU *)"
 }
 
+variable "monthly_digest_schedule_expression" {
+  type        = string
+  description = "EventBridge Scheduler expression for subscriber subscription summaries."
+  default     = "cron(0 9 1 * ? *)"
+}
+
 variable "warn_ca_url" {
   type        = string
   description = "California WARN XLSX URL."

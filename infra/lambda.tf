@@ -49,6 +49,27 @@ resource "aws_lambda_function" "matcher" {
   tags       = local.tags
 }
 
+resource "aws_lambda_function" "monthly_digest" {
+  function_name    = "${var.project_name}-monthly-digest"
+  role             = aws_iam_role.monthly_digest_lambda.arn
+  runtime          = "python3.11"
+  handler          = "app.handler"
+  filename         = local.monthly_digest_zip_path
+  source_code_hash = filebase64sha256(local.monthly_digest_zip_path)
+  timeout          = 120
+  memory_size      = 256
+
+  environment {
+    variables = {
+      WATCHLISTS_TABLE   = aws_dynamodb_table.watchlists.name
+      ALERT_SENDER_EMAIL = var.alert_sender_email
+    }
+  }
+
+  depends_on = [aws_cloudwatch_log_group.monthly_digest]
+  tags       = local.tags
+}
+
 resource "aws_lambda_function" "watchlist_api" {
   function_name    = "${var.project_name}-watchlist-api"
   role             = aws_iam_role.watchlist_api_lambda.arn
@@ -93,4 +114,12 @@ resource "aws_lambda_permission" "allow_scheduler" {
   function_name = aws_lambda_function.ingest.function_name
   principal     = "scheduler.amazonaws.com"
   source_arn    = aws_scheduler_schedule.ingest.arn
+}
+
+resource "aws_lambda_permission" "allow_scheduler_monthly_digest" {
+  statement_id  = "AllowExecutionFromSchedulerMonthlyDigest"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.monthly_digest.function_name
+  principal     = "scheduler.amazonaws.com"
+  source_arn    = aws_scheduler_schedule.monthly_digest.arn
 }

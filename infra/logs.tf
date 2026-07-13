@@ -10,6 +10,12 @@ resource "aws_cloudwatch_log_group" "matcher" {
   tags              = local.tags
 }
 
+resource "aws_cloudwatch_log_group" "monthly_digest" {
+  name              = "/aws/lambda/${var.project_name}-monthly-digest"
+  retention_in_days = 14
+  tags              = local.tags
+}
+
 resource "aws_cloudwatch_log_group" "watchlist_api" {
   name              = "/aws/lambda/${var.project_name}-watchlist-api"
   retention_in_days = 14

@@ -109,6 +109,41 @@ resource "aws_iam_role_policy" "matcher_policy" {
   policy = data.aws_iam_policy_document.matcher_policy.json
 }
 
+resource "aws_iam_role" "monthly_digest_lambda" {
+  name               = "${var.project_name}-monthly-digest-lambda-role"
+  assume_role_policy = data.aws_iam_policy_document.lambda_assume_role.json
+  tags               = local.tags
+}
+
+data "aws_iam_policy_document" "monthly_digest_policy" {
+  statement {
+    sid       = "DynamoWatchlistsRead"
+    actions   = ["dynamodb:Scan"]
+    resources = [aws_dynamodb_table.watchlists.arn]
+  }
+
+  statement {
+    sid       = "SesSend"
+    actions   = ["ses:SendEmail"]
+    resources = ["*"]
+  }
+
+  statement {
+    sid = "CloudWatchLogs"
+    actions = [
+      "logs:CreateLogStream",
+      "logs:PutLogEvents"
+    ]
+    resources = ["${aws_cloudwatch_log_group.monthly_digest.arn}:*"]
+  }
+}
+
+resource "aws_iam_role_policy" "monthly_digest_policy" {
+  name   = "${var.project_name}-monthly-digest-lambda-policy"
+  role   = aws_iam_role.monthly_digest_lambda.id
+  policy = data.aws_iam_policy_document.monthly_digest_policy.json
+}
+
 resource "aws_iam_role" "watchlist_api_lambda" {
   name               = "${var.project_name}-watchlist-api-lambda-role"
   assume_role_policy = data.aws_iam_policy_document.lambda_assume_role.json
@@ -193,8 +228,11 @@ resource "aws_iam_role" "scheduler_invoke" {
 
 data "aws_iam_policy_document" "scheduler_invoke_policy" {
   statement {
-    actions   = ["lambda:InvokeFunction"]
-    resources = [aws_lambda_function.ingest.arn]
+    actions = ["lambda:InvokeFunction"]
+    resources = [
+      aws_lambda_function.ingest.arn,
+      aws_lambda_function.monthly_digest.arn
+    ]
   }
 }
 

@@ -30,8 +30,16 @@ output "match_notify_lambda_name" {
   value = aws_lambda_function.matcher.function_name
 }
 
+output "monthly_digest_lambda_name" {
+  value = aws_lambda_function.monthly_digest.function_name
+}
+
 output "scheduler_name" {
   value = aws_scheduler_schedule.ingest.name
+}
+
+output "monthly_digest_scheduler_name" {
+  value = aws_scheduler_schedule.monthly_digest.name
 }
 
 output "sns_topic_arn" {
