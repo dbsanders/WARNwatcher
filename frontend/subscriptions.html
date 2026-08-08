@@ -3,25 +3,36 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>WARNwatcher - Subscriptions</title>
+    <meta name="theme-color" content="#2457d6" />
+    <title>Your watches · WARNwatcher</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <main class="container">
-      <h1>Your Subscriptions</h1>
-      <p id="auth-summary"></p>
+    <main class="container subscriptions-container">
+      <header class="page-header">
+        <a class="brand" href="./index.html" aria-label="WARNwatcher home">
+          <span class="brand-mark" aria-hidden="true">W</span>
+          <span class="brand-name">WARN<span>watcher</span></span>
+        </a>
+        <h1>Your company watches</h1>
+        <p>Edit alert criteria, pause a watch, or remove one you no longer need.</p>
+      </header>
 
-      <div class="button-row">
-        <a class="button-link" href="./index.html">Create subscription</a>
-        <a class="button-link" href="./notices.html">View notices</a>
-        <button id="refresh" type="button" class="secondary">Refresh</button>
+      <div class="account-bar">
+        <p id="auth-summary"></p>
         <button id="logout" type="button" class="secondary">Log out</button>
       </div>
 
-      <p id="status" role="status"></p>
+      <nav class="button-row" aria-label="Watchlist navigation">
+        <a class="button-link" href="./index.html">Create watch</a>
+        <a class="button-link secondary" href="./notices.html">Browse notices</a>
+        <button id="refresh" type="button" class="secondary">Refresh</button>
+      </nav>
+
+      <p id="status" role="status" aria-live="polite"></p>
       <form id="subscriptions-form">
-        <section id="subscriptions-list"></section>
-        <button id="save-all" type="submit" disabled>Save Changes</button>
+        <section id="subscriptions-list" aria-label="Existing watches"></section>
+        <button id="save-all" type="submit" disabled>Save changes</button>
       </form>
     </main>
 

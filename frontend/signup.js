@@ -1,6 +1,10 @@
 const signupForm = document.getElementById("signup-form");
 const loginForm = document.getElementById("login-form");
 const statusEl = document.getElementById("status");
+const loginTab = document.getElementById("login-tab");
+const signupTab = document.getElementById("signup-tab");
+const loginPanel = document.getElementById("login-panel");
+const signupPanel = document.getElementById("signup-panel");
 
 // Override with localStorage value for development if needed.
 const apiBase = localStorage.getItem("warnwatcher_api_base") || "https://api.warnwatcher.com";
@@ -9,6 +13,18 @@ const existingToken = localStorage.getItem("warnwatcher_auth_token");
 if (existingToken) {
   window.location.href = "./index.html";
 }
+
+function selectAuthPanel(panelName) {
+  const showLogin = panelName === "login";
+  loginTab.setAttribute("aria-selected", String(showLogin));
+  signupTab.setAttribute("aria-selected", String(!showLogin));
+  loginPanel.hidden = !showLogin;
+  signupPanel.hidden = showLogin;
+  statusEl.textContent = "";
+}
+
+loginTab.addEventListener("click", () => selectAuthPanel("login"));
+signupTab.addEventListener("click", () => selectAuthPanel("signup"));
 
 async function parseJson(res) {
   try {
@@ -39,8 +55,10 @@ signupForm.addEventListener("submit", async (event) => {
       statusEl.textContent = `Signup failed: ${body.message || "request failed"}`;
       return;
     }
-    statusEl.textContent = "Account created. Sign in below.";
+    selectAuthPanel("login");
+    statusEl.textContent = "Account created. Sign in to continue.";
     loginForm.elements.email.value = payload.email;
+    loginForm.elements.password.focus();
   } catch (_err) {
     statusEl.textContent = "Network error. Try again.";
   }

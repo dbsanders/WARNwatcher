@@ -3,34 +3,51 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#2457d6" />
     <title>WARNwatcher</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
     <main class="container">
-      <h1>WARNwatcher</h1>
-      <p>Get notified when a company appears in the WARN feed.</p>
-      <p id="auth-summary"></p>
-      <button id="logout" type="button" class="secondary">Log out</button>
+      <header class="page-header">
+        <a class="brand" href="./index.html" aria-label="WARNwatcher home">
+          <span class="brand-mark" aria-hidden="true">W</span>
+          <span class="brand-name">WARN<span>watcher</span></span>
+        </a>
+        <h1>Create a company watch</h1>
+        <p>Get an email when a company appears in the WARN notice feed.</p>
+      </header>
 
-      <form id="subscribe-form">
-        <label for="company">Company Name</label>
-        <input id="company" name="company" type="text" required />
+      <div class="account-bar">
+        <p id="auth-summary"></p>
+        <button id="logout" type="button" class="secondary">Log out</button>
+      </div>
 
-        <label for="state">State</label>
-        <input id="state" name="state" type="text" value="CA" maxlength="2" />
+      <section class="panel" aria-labelledby="watch-heading">
+        <h2 id="watch-heading">Watch criteria</h2>
+        <form id="subscribe-form">
+          <label for="company">Company name</label>
+          <input id="company" name="company" type="text" autocomplete="organization" placeholder="e.g. Acme Corporation" required />
 
-        <label for="min-employees">Min Employees</label>
-        <input id="min-employees" name="min_employees" type="number" min="0" value="0" />
+          <label for="state">State</label>
+          <input id="state" name="state" type="text" value="CA" maxlength="2" autocapitalize="characters" aria-describedby="state-hint" />
+          <p id="state-hint" class="field-hint">Use the two-letter state code.</p>
 
-        <button type="submit">Subscribe</button>
-      </form>
+          <label for="min-employees">Minimum employees affected</label>
+          <input id="min-employees" name="min_employees" type="number" inputmode="numeric" min="0" value="0" />
 
-      <p id="status" role="status"></p>
-      <p><a href="./subscriptions.html">Manage subscriptions</a></p>
-      <p><a href="./notices.html">View current WARN notices</a></p>
-      <p><a href="./forgot-password.html">Forgot password?</a></p>
-      <p><a href="./signup.html">Need an account? Sign up or sign in.</a></p>
+          <button type="submit">Create watch</button>
+        </form>
+      </section>
+
+      <p id="status" role="status" aria-live="polite"></p>
+
+      <nav class="quick-links" aria-label="Watchlist navigation">
+        <a class="quick-link" href="./subscriptions.html">Manage watches<small>Edit, pause, or delete existing subscriptions.</small></a>
+        <a class="quick-link" href="./notices.html">Browse WARN notices<small>Review the latest notices in the feed.</small></a>
+      </nav>
+
+      <p class="footer-note"><a href="./forgot-password.html">Change or reset your password</a></p>
     </main>
 
     <script src="./app.js"></script>
