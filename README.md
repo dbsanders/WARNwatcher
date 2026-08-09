@@ -8,7 +8,7 @@ Cloud-native AWS starter project to ingest WARN notices (starting with Californi
 - `ingest` Lambda checks source headers (`ETag` / `Last-Modified`), stores raw files in S3, parses XLSX, normalizes notices, writes deduped notices to DynamoDB, and emits new-notice events to SNS.
 - `match_notify` Lambda consumes SNS events, evaluates watchlists, sends SES emails, and records sent notifications for dedupe.
 - `monthly_digest` Lambda runs at 9:00 AM Pacific on the first day of each month and emails every subscriber an alphabetized list of their enabled company subscriptions.
-- `watchlist_api` Lambda is exposed via API Gateway HTTP API (`POST /signup`, `POST /login`, `POST /forgot-password`, `POST /reset-password`, `POST /subscribe`, `GET /subscriptions`, `GET /notices`, `PUT /subscriptions/{watch_id}`, `DELETE /subscriptions/{watch_id}`) for account auth and watchlist management.
+- `watchlist_api` Lambda is exposed via API Gateway HTTP API (`POST /signup`, `POST /verify-email`, `POST /resend-verification`, `POST /login`, `POST /forgot-password`, `POST /reset-password`, `POST /subscribe`, `GET /subscriptions`, `GET /notices`, `PUT /subscriptions/{watch_id}`, `DELETE /subscriptions/{watch_id}`) for account auth and watchlist management.
 - Static frontend is served from S3 through CloudFront.
 
 ## Repo Layout
@@ -129,6 +129,14 @@ Create an account:
 curl -X POST "https://api.warnwatcher.com/signup" \
   -H "Content-Type: application/json" \
   -d '{"email":"you@example.com","password":"change-me-123"}'
+```
+
+Signup sends a one-time verification link that expires after 24 hours. Opening it verifies the email and signs the user in. Unverified accounts cannot use password login. A new link can be requested with:
+
+```bash
+curl -X POST "https://api.warnwatcher.com/resend-verification" \
+  -H "Content-Type: application/json" \
+  -d '{"email":"you@example.com"}'
 ```
 
 Sign in and capture `access_token` from the response:

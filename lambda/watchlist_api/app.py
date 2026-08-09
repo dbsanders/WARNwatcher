@@ -25,6 +25,7 @@ USERS_TABLE = os.environ["USERS_TABLE"]
 AUTH_TOKEN_SECRET = os.environ["AUTH_TOKEN_SECRET"]
 AUTH_TOKEN_TTL_SEC = int(os.environ.get("AUTH_TOKEN_TTL_SEC", "86400"))
 RESET_TOKEN_TTL_SEC = int(os.environ.get("RESET_TOKEN_TTL_SEC", "3600"))
+EMAIL_VERIFICATION_TTL_SEC = int(os.environ.get("EMAIL_VERIFICATION_TTL_SEC", "86400"))
 ALERT_SENDER_EMAIL = os.environ["ALERT_SENDER_EMAIL"]
 PASSWORD_RESET_FROM_EMAIL = os.environ["PASSWORD_RESET_FROM_EMAIL"]
 WEB_APP_BASE_URL = os.environ["WEB_APP_BASE_URL"].rstrip("/")
@@ -194,6 +195,59 @@ def validate_password_reset_token(token: str) -> Tuple[Dict[str, Any], str]:
     return payload, ""
 
 
+def issue_email_verification_token(user_id: str, email: str) -> str:
+    payload = {
+        "sub": user_id,
+        "email": email,
+        "purpose": "email_verification",
+        "nonce": secrets.token_urlsafe(16),
+        "exp": int(time.time()) + EMAIL_VERIFICATION_TTL_SEC,
+    }
+    payload_encoded = b64url_encode(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
+    signature = hmac.new(
+        AUTH_TOKEN_SECRET.encode("utf-8"),
+        payload_encoded.encode("utf-8"),
+        hashlib.sha256,
+    ).digest()
+    return f"{payload_encoded}.{b64url_encode(signature)}"
+
+
+def validate_email_verification_token(token: str) -> Tuple[Dict[str, Any], str]:
+    if not token or "." not in token:
+        return {}, "invalid verification link"
+
+    payload_encoded, signature_encoded = token.split(".", 1)
+    expected_signature = hmac.new(
+        AUTH_TOKEN_SECRET.encode("utf-8"),
+        payload_encoded.encode("utf-8"),
+        hashlib.sha256,
+    ).digest()
+
+    try:
+        actual_signature = b64url_decode(signature_encoded)
+        payload = json.loads(b64url_decode(payload_encoded).decode("utf-8"))
+    except (ValueError, json.JSONDecodeError):
+        return {}, "invalid verification link"
+
+    if not hmac.compare_digest(actual_signature, expected_signature):
+        return {}, "invalid verification link"
+    if int(payload.get("exp", 0)) <= int(time.time()):
+        return {}, "verification link expired"
+    if (
+        not payload.get("sub")
+        or not payload.get("email")
+        or payload.get("purpose") != "email_verification"
+        or not payload.get("nonce")
+    ):
+        return {}, "invalid verification link"
+
+    return payload, ""
+
+
+def hash_verification_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
 def get_bearer_token(event: Dict[str, Any]) -> str:
     headers = event.get("headers") or {}
     auth_header = headers.get("authorization") or headers.get("Authorization") or ""
@@ -322,6 +376,25 @@ def send_password_reset_email(email: str, reset_token: str) -> None:
     )
 
 
+def send_verification_email(email: str, verification_token: str) -> None:
+    verification_url = f"{WEB_APP_BASE_URL}/verify-email.html?token={quote(verification_token, safe='')}"
+    subject = "Verify your WARNwatcher email"
+    body = (
+        "Welcome to WARNwatcher. Verify your email address to finish creating your account.\n\n"
+        f"Verify and sign in: {verification_url}\n\n"
+        f"This link expires in {EMAIL_VERIFICATION_TTL_SEC // 3600} hours.\n"
+        "If you did not create this account, you can ignore this email."
+    )
+    ses.send_email(
+        Source=PASSWORD_RESET_FROM_EMAIL,
+        Destination={"ToAddresses": [email]},
+        Message={
+            "Subject": {"Data": subject},
+            "Body": {"Text": {"Data": body}},
+        },
+    )
+
+
 def write_notification_record(notice_id: str, user_id: str) -> bool:
     try:
         notifications_table.put_item(
@@ -382,6 +455,7 @@ def handle_signup(event: Dict[str, Any]) -> Dict[str, Any]:
         return response(400, {"message": "password must be at least 8 characters"})
 
     user_id = f"email#{email}"
+    verification_token = issue_email_verification_token(user_id, email)
 
     try:
         users_table.put_item(
@@ -389,6 +463,10 @@ def handle_signup(event: Dict[str, Any]) -> Dict[str, Any]:
                 "user_id": user_id,
                 "email": email,
                 "password_hash": hash_password(password),
+                "email_verified": False,
+                "verification_token_hash": hash_verification_token(verification_token),
+                "verification_expires_at": int(time.time()) + EMAIL_VERIFICATION_TTL_SEC,
+                "verification_sent_at": int(time.time()),
                 "created_at": utc_now_iso(),
             },
             ConditionExpression="attribute_not_exists(user_id)",
@@ -399,7 +477,138 @@ def handle_signup(event: Dict[str, Any]) -> Dict[str, Any]:
             return response(409, {"message": "account already exists"})
         return response(500, {"message": "failed to create account"})
 
-    return response(201, {"message": "account created"})
+    try:
+        send_verification_email(email, verification_token)
+    except ClientError as exc:
+        code = exc.response.get("Error", {}).get("Code", "send_failed")
+        print(f"verification_email_failed code={code} error={exc}")
+        # Permit an immediate resend when the first SES attempt did not leave Lambda.
+        try:
+            users_table.update_item(
+                Key={"user_id": user_id},
+                UpdateExpression="SET verification_sent_at = :not_sent",
+                ExpressionAttributeValues={":not_sent": 0},
+            )
+        except ClientError as update_exc:
+            print(f"verification_resend_unlock_failed error={update_exc}")
+        return response(
+            201,
+            {
+                "message": "account created, but the verification email could not be sent; request a new link",
+                "verification_required": True,
+                "email_sent": False,
+            },
+        )
+
+    return response(
+        201,
+        {
+            "message": "account created; check your email to verify and sign in",
+            "verification_required": True,
+            "email_sent": True,
+        },
+    )
+
+
+def handle_verify_email(event: Dict[str, Any]) -> Dict[str, Any]:
+    payload, error = parse_payload(event)
+    if error:
+        return response(400, {"message": error})
+
+    verification_token = str(payload.get("token") or "").strip()
+    token_payload, token_error = validate_email_verification_token(verification_token)
+    if token_error:
+        return response(400, {"message": token_error})
+
+    user_id = str(token_payload["sub"])
+    email = str(token_payload["email"])
+    user = users_table.get_item(Key={"user_id": user_id}).get("Item")
+    if not user or str(user.get("email") or "") != email:
+        return response(400, {"message": "invalid verification link"})
+
+    if user.get("email_verified") is True:
+        return response(400, {"message": "email is already verified; sign in with your password"})
+
+    expected_hash = str(user.get("verification_token_hash") or "")
+    if not expected_hash or not hmac.compare_digest(expected_hash, hash_verification_token(verification_token)):
+        return response(400, {"message": "invalid or superseded verification link"})
+    if int(user.get("verification_expires_at", 0)) <= int(time.time()):
+        return response(400, {"message": "verification link expired"})
+
+    try:
+        users_table.update_item(
+            Key={"user_id": user_id},
+            UpdateExpression=(
+                "SET email_verified = :verified, email_verified_at = :verified_at "
+                "REMOVE verification_token_hash, verification_expires_at, verification_sent_at"
+            ),
+            ExpressionAttributeValues={
+                ":verified": True,
+                ":verified_at": utc_now_iso(),
+                ":expected_hash": expected_hash,
+            },
+            ConditionExpression="verification_token_hash = :expected_hash",
+        )
+    except ClientError as exc:
+        if exc.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
+            return response(400, {"message": "invalid or already-used verification link"})
+        return response(500, {"message": "failed to verify email"})
+
+    access_token = issue_token(user_id, email)
+    return response(
+        200,
+        {
+            "message": "email verified",
+            "access_token": access_token,
+            "token_type": "Bearer",
+            "expires_in": AUTH_TOKEN_TTL_SEC,
+            "email": email,
+        },
+    )
+
+
+def handle_resend_verification(event: Dict[str, Any]) -> Dict[str, Any]:
+    payload, error = parse_payload(event)
+    if error:
+        return response(400, {"message": error})
+
+    email = str(payload.get("email") or "").strip().lower()
+    if not validate_email(email):
+        return response(400, {"message": "a valid email is required"})
+
+    generic_message = "if that unverified account exists, a new verification link has been sent"
+    user_id = f"email#{email}"
+    user = users_table.get_item(Key={"user_id": user_id}).get("Item")
+    # A missing flag denotes an account created before verification was introduced.
+    if not user or user.get("email_verified") is not False:
+        return response(200, {"message": generic_message})
+
+    now = int(time.time())
+    if now - int(user.get("verification_sent_at", 0)) < 60:
+        return response(200, {"message": generic_message})
+
+    verification_token = issue_email_verification_token(user_id, email)
+    try:
+        users_table.update_item(
+            Key={"user_id": user_id},
+            UpdateExpression=(
+                "SET verification_token_hash = :token_hash, "
+                "verification_expires_at = :expires_at, verification_sent_at = :sent_at"
+            ),
+            ExpressionAttributeValues={
+                ":token_hash": hash_verification_token(verification_token),
+                ":expires_at": now + EMAIL_VERIFICATION_TTL_SEC,
+                ":sent_at": now,
+                ":not_verified": False,
+            },
+            ConditionExpression="email_verified = :not_verified",
+        )
+        send_verification_email(email, verification_token)
+    except ClientError as exc:
+        print(f"resend_verification_failed error={exc}")
+        return response(500, {"message": "failed to send verification email"})
+
+    return response(200, {"message": generic_message})
 
 
 def handle_login(event: Dict[str, Any]) -> Dict[str, Any]:
@@ -421,6 +630,10 @@ def handle_login(event: Dict[str, Any]) -> Dict[str, Any]:
 
     if not verify_password(password, str(user.get("password_hash") or "")):
         return response(401, {"message": "invalid credentials"})
+
+    # Accounts created before verification was introduced have no flag and remain usable.
+    if user.get("email_verified") is False:
+        return response(403, {"message": "verify your email before signing in", "verification_required": True})
 
     token = issue_token(user_id, email)
     return response(
@@ -734,6 +947,10 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             return handle_signup(event)
         if path == "/login":
             return handle_login(event)
+        if path == "/verify-email":
+            return handle_verify_email(event)
+        if path == "/resend-verification":
+            return handle_resend_verification(event)
         if path == "/forgot-password":
             return handle_forgot_password(event)
         if path == "/reset-password":

@@ -5,6 +5,7 @@ const loginTab = document.getElementById("login-tab");
 const signupTab = document.getElementById("signup-tab");
 const loginPanel = document.getElementById("login-panel");
 const signupPanel = document.getElementById("signup-panel");
+const resendVerificationBtn = document.getElementById("resend-verification");
 
 // Override with localStorage value for development if needed.
 const apiBase = localStorage.getItem("warnwatcher_api_base") || "https://api.warnwatcher.com";
@@ -56,9 +57,35 @@ signupForm.addEventListener("submit", async (event) => {
       return;
     }
     selectAuthPanel("login");
-    statusEl.textContent = "Account created. Sign in to continue.";
+    statusEl.textContent = body.email_sent === false
+      ? "Account created, but email delivery failed. Use resend verification email."
+      : "Account created. Check your email for a verification link.";
     loginForm.elements.email.value = payload.email;
     loginForm.elements.password.focus();
+  } catch (_err) {
+    statusEl.textContent = "Network error. Try again.";
+  }
+});
+
+resendVerificationBtn.addEventListener("click", async () => {
+  const email = String(loginForm.elements.email.value || "").trim().toLowerCase();
+  if (!email) {
+    statusEl.textContent = "Enter your email address first.";
+    loginForm.elements.email.focus();
+    return;
+  }
+
+  statusEl.textContent = "Requesting a new verification link...";
+  try {
+    const res = await fetch(`${apiBase}/resend-verification`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    });
+    const body = await parseJson(res);
+    statusEl.textContent = res.ok
+      ? "If this account needs verification, a new link is on its way."
+      : `Could not resend: ${body.message || "request failed"}`;
   } catch (_err) {
     statusEl.textContent = "Network error. Try again.";
   }

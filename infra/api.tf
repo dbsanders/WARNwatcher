@@ -38,6 +38,18 @@ resource "aws_apigatewayv2_route" "watchlist_login" {
   target    = "integrations/${aws_apigatewayv2_integration.watchlist_lambda.id}"
 }
 
+resource "aws_apigatewayv2_route" "watchlist_verify_email" {
+  api_id    = aws_apigatewayv2_api.watchlist.id
+  route_key = "POST /verify-email"
+  target    = "integrations/${aws_apigatewayv2_integration.watchlist_lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "watchlist_resend_verification" {
+  api_id    = aws_apigatewayv2_api.watchlist.id
+  route_key = "POST /resend-verification"
+  target    = "integrations/${aws_apigatewayv2_integration.watchlist_lambda.id}"
+}
+
 resource "aws_apigatewayv2_route" "watchlist_forgot_password" {
   api_id    = aws_apigatewayv2_api.watchlist.id
   route_key = "POST /forgot-password"

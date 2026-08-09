@@ -330,6 +330,24 @@ button:disabled {
   text-align: center;
 }
 
+.text-button,
+.text-button:hover {
+  min-height: 0;
+  padding: 0;
+  color: var(--brand);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  font: inherit;
+  text-decoration: underline;
+  transform: none;
+}
+
+.text-button:hover {
+  color: var(--brand-dark);
+}
+
 .auth-tabs {
   display: grid;
   grid-template-columns: 1fr 1fr;
