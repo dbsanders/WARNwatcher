@@ -1,0 +1,3 @@
+# Copy this file to terraform.tfvars before planning or applying.
+# Use false only during the initial certificate-validation bootstrap.
+enable_custom_domains = true

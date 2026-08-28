@@ -61,5 +61,4 @@ variable "api_subdomain" {
 variable "enable_custom_domains" {
   type        = bool
   description = "Enable custom domain bindings on CloudFront and API Gateway after ACM certificates are validated."
-  default     = false
 }

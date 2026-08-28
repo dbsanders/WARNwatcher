@@ -63,6 +63,12 @@ The legacy `infra/bootstrap` stack is retained only for rollback history and mus
 
 ## Deploy Main Stack
 
+Copy the production domain setting on a fresh checkout:
+
+```bash
+cp infra/terraform.tfvars.example infra/terraform.tfvars
+```
+
 ```bash
 terraform -chdir=infra apply
 ```
