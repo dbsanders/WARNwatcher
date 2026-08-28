@@ -17,7 +17,7 @@ build_lambda() {
   cp "$src_dir/app.py" "$out_dir/app.py"
 
   if [[ -f "$src_dir/requirements.txt" ]]; then
-    python -m pip install -r "$src_dir/requirements.txt" -t "$out_dir" --upgrade
+    python3 -m pip install -r "$src_dir/requirements.txt" -t "$out_dir" --upgrade
   fi
 
   (

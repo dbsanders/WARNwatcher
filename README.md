@@ -37,46 +37,29 @@ WSL / Bash:
 bash scripts/build_lambdas.sh
 ```
 
-## Remote State (S3 + DynamoDB)
+## Remote State (shared account S3 backend)
 
-### 1) Create backend resources (one-time)
+WarnWatcher uses the account-level state bucket managed in `/Users/bret/Development/aws-account-infra`. Its independent state key is `warnwatcher/prod/terraform.tfstate`, with native S3 locking enabled.
 
-```bash
-terraform -chdir=infra/bootstrap init
-terraform -chdir=infra/bootstrap apply
-```
-
-Capture outputs:
-
-```bash
-terraform -chdir=infra/bootstrap output -raw state_bucket_name
-terraform -chdir=infra/bootstrap output -raw lock_table_name
-terraform -chdir=infra/bootstrap output -raw backend_region
-```
-
-### 2) Configure main stack backend
+### Configure the main stack backend
 
 Create `infra/backend.hcl` from `infra/backend.hcl.example`:
 
 ```hcl
-bucket         = "<state_bucket_name>"
-key            = "warnwatcher/terraform.tfstate"
-region         = "us-west-2"
-dynamodb_table = "<lock_table_name>"
-encrypt        = true
+bucket       = "terraform-state-<aws_account_id>-us-west-2"
+key          = "warnwatcher/prod/terraform.tfstate"
+region       = "us-west-2"
+encrypt      = true
+use_lockfile = true
 ```
 
-### 3) Initialize main stack with remote backend
+Initialize the main stack:
 
-If local state exists and you want to migrate it:
 ```bash
-terraform -chdir=infra init -backend-config=backend.hcl -migrate-state
+AWS_PROFILE=terraform-bootstrap terraform -chdir=infra init -backend-config=backend.hcl
 ```
 
-If no local state should be kept:
-```bash
-terraform -chdir=infra init -backend-config=backend.hcl -reconfigure
-```
+The legacy `infra/bootstrap` stack is retained only for rollback history and must not be applied or destroyed.
 
 ## Deploy Main Stack
 
