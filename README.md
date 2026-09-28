@@ -56,7 +56,7 @@ use_lockfile = true
 Initialize the main stack:
 
 ```bash
-AWS_PROFILE=terraform-bootstrap terraform -chdir=infra init -backend-config=backend.hcl
+AWS_PROFILE=warnwatcher-prod terraform -chdir=infra init -backend-config=backend.hcl
 ```
 
 The legacy `infra/bootstrap` stack is retained only for rollback history and must not be applied or destroyed.
@@ -70,7 +70,7 @@ cp infra/terraform.tfvars.example infra/terraform.tfvars
 ```
 
 ```bash
-terraform -chdir=infra apply
+AWS_PROFILE=warnwatcher-prod terraform -chdir=infra apply
 ```
 
 ## Domain + Cloudflare Notes
@@ -81,13 +81,16 @@ terraform -chdir=infra apply
 - Add those records in Cloudflare first, wait for cert issuance, then set:
   - `enable_custom_domains = true`
 - Use output `cloudflare_dns_targets` to create CNAME/flattened records for apex, `www`, and `api`.
+- For a cross-account CloudFront migration, keep these DNS-only ownership records pointed at the target distribution until the aliases are attached:
+  - `_.warnwatcher.com` TXT `<cloudfront_distribution_domain_name>`
+  - `_www.warnwatcher.com` TXT `<cloudfront_distribution_domain_name>`
 
 ## Frontend Deploy
 
 After Terraform apply, upload `frontend/` to the website bucket and invalidate CloudFront:
 
 ```bash
-bash scripts/deploy_frontend.sh <web_bucket_name> <cloudfront_distribution_id>
+AWS_PROFILE=warnwatcher-prod bash scripts/deploy_frontend.sh <web_bucket_name> <cloudfront_distribution_id>
 ```
 
 ## Pause / Resume Signup API
@@ -95,13 +98,13 @@ bash scripts/deploy_frontend.sh <web_bucket_name> <cloudfront_distribution_id>
 Temporarily block public signups (without deleting infrastructure):
 
 ```bash
-bash scripts/toggle_watchlist_api.sh disable
+AWS_PROFILE=warnwatcher-prod bash scripts/toggle_watchlist_api.sh disable
 ```
 
 Re-enable:
 
 ```bash
-bash scripts/toggle_watchlist_api.sh enable
+AWS_PROFILE=warnwatcher-prod bash scripts/toggle_watchlist_api.sh enable
 ```
 
 ## SES Setup

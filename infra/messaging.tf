@@ -3,6 +3,12 @@ resource "aws_sns_topic" "new_notice" {
   tags = local.tags
 }
 
+resource "aws_sesv2_email_identity" "sender_domain" {
+  email_identity = var.root_domain
+
+  tags = local.tags
+}
+
 resource "aws_sns_topic_subscription" "matcher_subscription" {
   topic_arn = aws_sns_topic.new_notice.arn
   protocol  = "lambda"

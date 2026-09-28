@@ -131,3 +131,8 @@ output "cloudflare_dns_targets" {
     api  = var.enable_custom_domains ? aws_apigatewayv2_domain_name.watchlist_api[0].domain_name_configuration[0].target_domain_name : null
   }
 }
+
+output "ses_dkim_tokens" {
+  value       = aws_sesv2_email_identity.sender_domain.dkim_signing_attributes[0].tokens
+  description = "DKIM tokens to publish as CNAME records under _domainkey."
+}

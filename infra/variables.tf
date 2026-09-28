@@ -10,6 +10,12 @@ variable "region" {
   default     = "us-west-2"
 }
 
+variable "expected_account_id" {
+  type        = string
+  description = "AWS account that is allowed to manage this stack."
+  default     = "591132358443"
+}
+
 variable "alert_sender_email" {
   type        = string
   description = "SES verified sender email."
