@@ -11,6 +11,23 @@ Cloud-native AWS starter project to ingest WARN notices (starting with Californi
 - `watchlist_api` Lambda is exposed via API Gateway HTTP API (`POST /signup`, `POST /verify-email`, `POST /resend-verification`, `POST /login`, `POST /forgot-password`, `POST /reset-password`, `POST /subscribe`, `GET /subscriptions`, `GET /notices`, `PUT /subscriptions/{watch_id}`, `DELETE /subscriptions/{watch_id}`) for account auth and watchlist management.
 - Static frontend is served from S3 through CloudFront.
 
+## Public auth abuse controls
+
+The six public auth routes (`/signup`, `/login`, `/verify-email`, `/resend-verification`, `/forgot-password`, and `/reset-password`) use shared DynamoDB counters so limits hold across Lambda instances. The source budget counts every request, including malformed bodies and invalid tokens; an account budget applies once the account identity is known. The source is API Gateway's client IP, not a client supplied header. Account and source identifiers are keyed with an HMAC rather than stored in plaintext.
+
+| Scope | Limit |
+| --- | --- |
+| One source across all six routes | 30 requests per 5 minutes |
+| One source across signup, forgot password, and resend verification | 10 requests per hour |
+| Signup for one email address | 3 requests per hour |
+| Login for one email address | 10 requests per 15 minutes |
+| Forgot password and resend verification for one email address, combined | 3 requests per hour |
+| Verify email or reset password for one account | 10 requests per 15 minutes, per route |
+
+The counters use fixed time windows. A limited login, signup, verification, or reset request receives HTTP 429 with `Retry-After`. Forgot password and resend verification keep their generic success response when an account limit is reached, to avoid disclosing whether an account exists. A counter-store error blocks the auth request with HTTP 503. API Gateway throttles signup, forgot password, and resend verification at 2 requests per second with a burst of 5 each; login at 10/20; and verify email and reset password at 5/10. These route limits are shared across callers and are best-effort targets; the Lambda counters enforce source and account limits.
+
+API Gateway access logs record request ID, time, route, and status without IP addresses, request bodies, or tokens. CloudWatch alarms send to the security SNS topic when at least 10 application limit denials or 10 HTTP 429 responses occur in five minutes, or when the counter store fails once. After applying Terraform, confirm the SNS email subscription sent to `default_alert_recipient_email` so the alarms can deliver notifications. The current API is an HTTP API, which cannot attach AWS WAF directly.
+
 ## Repo Layout
 
 - `infra/` main Terraform stack (app infrastructure).
@@ -36,6 +53,8 @@ WSL / Bash:
 ```bash
 bash scripts/build_lambdas.sh
 ```
+
+To rebuild only the API Lambda before an auth change, run `bash scripts/build_lambdas.sh watchlist_api`. The script resolves dependencies for the deployed Python 3.11 Linux runtime, including when run on macOS.
 
 ## Remote State (shared account S3 backend)
 

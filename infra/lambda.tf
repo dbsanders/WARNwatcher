@@ -86,6 +86,7 @@ resource "aws_lambda_function" "watchlist_api" {
       NOTICES_TABLE              = aws_dynamodb_table.notices.name
       NOTIFICATIONS_TABLE        = aws_dynamodb_table.notifications.name
       USERS_TABLE                = aws_dynamodb_table.users.name
+      AUTH_RATE_LIMITS_TABLE     = aws_dynamodb_table.auth_rate_limits.name
       AUTH_TOKEN_SECRET          = random_password.auth_token_secret.result
       AUTH_TOKEN_TTL_SEC         = "86400"
       RESET_TOKEN_TTL_SEC        = "3600"

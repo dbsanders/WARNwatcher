@@ -12,8 +12,8 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Tuple
 
 import boto3
-from botocore.exceptions import ClientError
-from boto3.dynamodb.conditions import Key
+from botocore.exceptions import BotoCoreError, ClientError
+from boto3.dynamodb.conditions import Attr, Key
 
 dynamodb = boto3.resource("dynamodb")
 ses = boto3.client("ses")
@@ -22,6 +22,7 @@ WATCHLISTS_TABLE = os.environ["WATCHLISTS_TABLE"]
 NOTICES_TABLE = os.environ["NOTICES_TABLE"]
 NOTIFICATIONS_TABLE = os.environ["NOTIFICATIONS_TABLE"]
 USERS_TABLE = os.environ["USERS_TABLE"]
+AUTH_RATE_LIMITS_TABLE = os.environ["AUTH_RATE_LIMITS_TABLE"]
 AUTH_TOKEN_SECRET = os.environ["AUTH_TOKEN_SECRET"]
 AUTH_TOKEN_TTL_SEC = int(os.environ.get("AUTH_TOKEN_TTL_SEC", "86400"))
 RESET_TOKEN_TTL_SEC = int(os.environ.get("RESET_TOKEN_TTL_SEC", "3600"))
@@ -35,18 +36,97 @@ watchlists_table = dynamodb.Table(WATCHLISTS_TABLE)
 notices_table = dynamodb.Table(NOTICES_TABLE)
 notifications_table = dynamodb.Table(NOTIFICATIONS_TABLE)
 users_table = dynamodb.Table(USERS_TABLE)
+auth_rate_limits_table = dynamodb.Table(AUTH_RATE_LIMITS_TABLE)
 
 
 def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def response(status_code: int, body: Dict[str, Any]) -> Dict[str, Any]:
+def response(status_code: int, body: Dict[str, Any], headers: Dict[str, str] | None = None) -> Dict[str, Any]:
     return {
         "statusCode": status_code,
-        "headers": {"Content-Type": "application/json"},
+        "headers": {"Content-Type": "application/json", **(headers or {})},
         "body": json.dumps(body),
     }
+
+
+# Counters live in DynamoDB so concurrent Lambda instances share the same limits.
+# The source budget is shared across public auth routes; email-sending routes
+# have a second, tighter source budget. Account keys include nonexistent emails
+# to avoid allowing unlimited guesses for accounts that have not signed up.
+AUTH_SOURCE_LIMITS = (("auth_source", 30, 300),)
+EMAIL_SOURCE_LIMIT = ("email_source", 10, 3600)
+AUTH_ACCOUNT_LIMITS = {
+    "signup": ("signup_account", 3, 3600),
+    "login": ("login_account", 10, 900),
+    "forgot-password": ("email_account", 3, 3600),
+    "resend-verification": ("email_account", 3, 3600),
+    "verify-email": ("verify_account", 10, 900),
+    "reset-password": ("reset_account", 10, 900),
+}
+EMAIL_SENDING_ROUTES = {"signup", "forgot-password", "resend-verification"}
+
+
+def consume_auth_budget(budget: str, identity: str, limit: int, window_sec: int) -> Tuple[str, int]:
+    now = int(time.time())
+    bucket = now // window_sec
+    retry_after = max(1, (bucket + 1) * window_sec - now)
+    identity_hash = hmac.new(
+        AUTH_TOKEN_SECRET.encode("utf-8"),
+        f"{budget}:{identity}".encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    try:
+        auth_rate_limits_table.update_item(
+            Key={"limit_key": f"{budget}#{bucket}#{identity_hash}"},
+            UpdateExpression="SET expires_at = :expires_at ADD request_count :one",
+            ConditionExpression=(
+                Attr("request_count").not_exists() | Attr("request_count").lt(limit)
+            ),
+            ExpressionAttributeValues={
+                ":expires_at": (bucket + 1) * window_sec + 60,
+                ":one": 1,
+            },
+        )
+    except ClientError as exc:
+        if exc.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
+            return "limited", retry_after
+        return "error", retry_after
+    except BotoCoreError:
+        return "error", retry_after
+    return "allowed", retry_after
+
+
+def enforce_auth_budget(event: Dict[str, Any], route: str, dimension: str, identity: str = "") -> Dict[str, Any] | None:
+    if dimension == "source":
+        source_ip = str(event.get("requestContext", {}).get("http", {}).get("sourceIp") or "").strip()
+        if not source_ip:
+            print(json.dumps({"event": "rate_limit_error", "route": route, "dimension": dimension}))
+            return response(503, {"message": "authentication temporarily unavailable"})
+        budgets = AUTH_SOURCE_LIMITS + ((EMAIL_SOURCE_LIMIT,) if route in EMAIL_SENDING_ROUTES else ())
+        identity = source_ip
+    else:
+        budgets = (AUTH_ACCOUNT_LIMITS[route],)
+
+    for budget, limit, window_sec in budgets:
+        result, retry_after = consume_auth_budget(budget, identity, limit, window_sec)
+        if result == "allowed":
+            continue
+        if result == "error":
+            print(json.dumps({"event": "rate_limit_error", "route": route, "dimension": dimension}))
+            return response(503, {"message": "authentication temporarily unavailable"})
+
+        print(json.dumps({"event": "rate_limit_exceeded", "route": route, "dimension": dimension}))
+        if dimension == "account" and route in ("forgot-password", "resend-verification"):
+            message = (
+                "if that account exists, a reset link has been sent"
+                if route == "forgot-password"
+                else "if that unverified account exists, a new verification link has been sent"
+            )
+            return response(200, {"message": message})
+        return response(429, {"message": "too many requests; try again later"}, {"Retry-After": str(retry_after)})
+    return None
 
 
 def parse_payload(event: Dict[str, Any]) -> Tuple[Dict[str, Any], str]:
@@ -57,6 +137,9 @@ def parse_payload(event: Dict[str, Any]) -> Tuple[Dict[str, Any], str]:
         payload = json.loads(raw_body)
     except json.JSONDecodeError:
         return {}, "invalid JSON body"
+
+    if not isinstance(payload, dict):
+        return {}, "JSON body must be an object"
 
     return payload, ""
 
@@ -442,6 +525,9 @@ def send_immediate_match_email(email: str, company: str, matches: list[Dict[str,
 
 
 def handle_signup(event: Dict[str, Any]) -> Dict[str, Any]:
+    rate_response = enforce_auth_budget(event, "signup", "source")
+    if rate_response is not None:
+        return rate_response
     payload, error = parse_payload(event)
     if error:
         return response(400, {"message": error})
@@ -453,6 +539,10 @@ def handle_signup(event: Dict[str, Any]) -> Dict[str, Any]:
         return response(400, {"message": "a valid email is required"})
     if len(password) < 8:
         return response(400, {"message": "password must be at least 8 characters"})
+
+    rate_response = enforce_auth_budget(event, "signup", "account", email)
+    if rate_response is not None:
+        return rate_response
 
     user_id = f"email#{email}"
     verification_token = issue_email_verification_token(user_id, email)
@@ -511,6 +601,9 @@ def handle_signup(event: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def handle_verify_email(event: Dict[str, Any]) -> Dict[str, Any]:
+    rate_response = enforce_auth_budget(event, "verify-email", "source")
+    if rate_response is not None:
+        return rate_response
     payload, error = parse_payload(event)
     if error:
         return response(400, {"message": error})
@@ -519,6 +612,10 @@ def handle_verify_email(event: Dict[str, Any]) -> Dict[str, Any]:
     token_payload, token_error = validate_email_verification_token(verification_token)
     if token_error:
         return response(400, {"message": token_error})
+
+    rate_response = enforce_auth_budget(event, "verify-email", "account", str(token_payload["sub"]))
+    if rate_response is not None:
+        return rate_response
 
     user_id = str(token_payload["sub"])
     email = str(token_payload["email"])
@@ -568,6 +665,9 @@ def handle_verify_email(event: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def handle_resend_verification(event: Dict[str, Any]) -> Dict[str, Any]:
+    rate_response = enforce_auth_budget(event, "resend-verification", "source")
+    if rate_response is not None:
+        return rate_response
     payload, error = parse_payload(event)
     if error:
         return response(400, {"message": error})
@@ -575,6 +675,10 @@ def handle_resend_verification(event: Dict[str, Any]) -> Dict[str, Any]:
     email = str(payload.get("email") or "").strip().lower()
     if not validate_email(email):
         return response(400, {"message": "a valid email is required"})
+
+    rate_response = enforce_auth_budget(event, "resend-verification", "account", email)
+    if rate_response is not None:
+        return rate_response
 
     generic_message = "if that unverified account exists, a new verification link has been sent"
     user_id = f"email#{email}"
@@ -612,6 +716,9 @@ def handle_resend_verification(event: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def handle_login(event: Dict[str, Any]) -> Dict[str, Any]:
+    rate_response = enforce_auth_budget(event, "login", "source")
+    if rate_response is not None:
+        return rate_response
     payload, error = parse_payload(event)
     if error:
         return response(400, {"message": error})
@@ -621,6 +728,10 @@ def handle_login(event: Dict[str, Any]) -> Dict[str, Any]:
 
     if not validate_email(email) or not password:
         return response(400, {"message": "email and password are required"})
+
+    rate_response = enforce_auth_budget(event, "login", "account", email)
+    if rate_response is not None:
+        return rate_response
 
     user_id = f"email#{email}"
     result = users_table.get_item(Key={"user_id": user_id})
@@ -649,6 +760,9 @@ def handle_login(event: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def handle_forgot_password(event: Dict[str, Any]) -> Dict[str, Any]:
+    rate_response = enforce_auth_budget(event, "forgot-password", "source")
+    if rate_response is not None:
+        return rate_response
     payload, error = parse_payload(event)
     if error:
         return response(400, {"message": error})
@@ -656,6 +770,10 @@ def handle_forgot_password(event: Dict[str, Any]) -> Dict[str, Any]:
     email = str(payload.get("email") or "").strip().lower()
     if not validate_email(email):
         return response(400, {"message": "a valid email is required"})
+
+    rate_response = enforce_auth_budget(event, "forgot-password", "account", email)
+    if rate_response is not None:
+        return rate_response
 
     user_id = f"email#{email}"
     result = users_table.get_item(Key={"user_id": user_id})
@@ -674,6 +792,9 @@ def handle_forgot_password(event: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def handle_reset_password(event: Dict[str, Any]) -> Dict[str, Any]:
+    rate_response = enforce_auth_budget(event, "reset-password", "source")
+    if rate_response is not None:
+        return rate_response
     payload, error = parse_payload(event)
     if error:
         return response(400, {"message": error})
@@ -686,6 +807,10 @@ def handle_reset_password(event: Dict[str, Any]) -> Dict[str, Any]:
     token_payload, token_error = validate_password_reset_token(reset_token)
     if token_error:
         return response(400, {"message": token_error})
+
+    rate_response = enforce_auth_budget(event, "reset-password", "account", str(token_payload["sub"]))
+    if rate_response is not None:
+        return rate_response
 
     user_id = str(token_payload["sub"])
     try:

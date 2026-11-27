@@ -56,6 +56,24 @@ resource "aws_dynamodb_table" "users" {
   tags = local.tags
 }
 
+resource "aws_dynamodb_table" "auth_rate_limits" {
+  name         = "${var.project_name}-auth-rate-limits"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "limit_key"
+
+  attribute {
+    name = "limit_key"
+    type = "S"
+  }
+
+  ttl {
+    attribute_name = "expires_at"
+    enabled        = true
+  }
+
+  tags = local.tags
+}
+
 resource "aws_dynamodb_table" "notifications" {
   name         = "${var.project_name}-notifications"
   billing_mode = "PAY_PER_REQUEST"

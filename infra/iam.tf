@@ -173,6 +173,12 @@ data "aws_iam_policy_document" "watchlist_api_policy" {
   }
 
   statement {
+    sid       = "DynamoAuthRateLimitsWrite"
+    actions   = ["dynamodb:UpdateItem"]
+    resources = [aws_dynamodb_table.auth_rate_limits.arn]
+  }
+
+  statement {
     sid = "DynamoNoticesRead"
     actions = [
       "dynamodb:Scan"

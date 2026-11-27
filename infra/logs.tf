@@ -21,3 +21,9 @@ resource "aws_cloudwatch_log_group" "watchlist_api" {
   retention_in_days = 14
   tags              = local.tags
 }
+
+resource "aws_cloudwatch_log_group" "watchlist_api_access" {
+  name              = "/aws/apigateway/${var.project_name}-watchlist-api"
+  retention_in_days = 14
+  tags              = local.tags
+}

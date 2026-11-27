@@ -91,6 +91,33 @@ resource "aws_apigatewayv2_stage" "watchlist_default" {
   name        = "$default"
   auto_deploy = true
 
+  access_log_settings {
+    destination_arn = aws_cloudwatch_log_group.watchlist_api_access.arn
+    format = jsonencode({
+      requestId        = "$context.requestId"
+      requestTimeEpoch = "$context.requestTimeEpoch"
+      routeKey         = "$context.routeKey"
+      status           = "$context.status"
+    })
+  }
+
+  dynamic "route_settings" {
+    for_each = {
+      "POST /signup"              = { rate = 2, burst = 5 }
+      "POST /forgot-password"     = { rate = 2, burst = 5 }
+      "POST /resend-verification" = { rate = 2, burst = 5 }
+      "POST /login"               = { rate = 10, burst = 20 }
+      "POST /verify-email"        = { rate = 5, burst = 10 }
+      "POST /reset-password"      = { rate = 5, burst = 10 }
+    }
+
+    content {
+      route_key              = route_settings.key
+      throttling_rate_limit  = route_settings.value.rate
+      throttling_burst_limit = route_settings.value.burst
+    }
+  }
+
   tags = local.tags
 }
 
